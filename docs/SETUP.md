@@ -12,9 +12,9 @@ takes on your machine.
 - npm 10 or newer (ships with Node 20).
 - PostgreSQL 15 or newer, running locally or hosted, with a database and a
   user that can create tables, types and indexes.
-- Redis 7 or newer (optional). The bot works without Redis and falls back
-  to in-memory timers for scheduled jobs. Redis is recommended in
-  production so delayed jobs survive a bot restart.
+- Redis 7 or newer (recommended). With Redis, BullMQ workers execute durable
+  delayed jobs and scheduled X polling. Without Redis, the bot uses an
+  in-memory timer fallback; delayed jobs are lost on restart.
 - A Discord account with permission to create applications and to add a bot
   to the Overland Finance server.
 - For X integration only: an X developer account with API v2 access and a
@@ -82,8 +82,8 @@ cp .env.example .env
 | `X_BEARER_TOKEN` | No | Bot | X API v2 bearer token. Blank means the X integration is disabled and logs that clearly. |
 | `X_USERNAME` | No | Bot | Defaults to `OverlandFinance`. |
 | `NEXTAUTH_URL` | Yes for dashboard | Dashboard | Public base URL of the dashboard, for example `http://localhost:3000` locally. The OAuth2 redirect is this URL plus `/api/auth/callback`. |
-| `NEXTAUTH_SECRET` | Reserved | Nothing yet | Listed for future session signing. No code reads it today: the dashboard session is a base64 JSON cookie (see docs/ARCHITECTURE.md, Known limitations). Set a long random value anyway so it is ready when signing lands. |
-| `DASHBOARD_SESSION_SECRET` | Reserved | Nothing yet | Same status as `NEXTAUTH_SECRET`. |
+| `NEXTAUTH_SECRET` | Yes for dashboard | Dashboard | Fallback signing secret for the HMAC-protected dashboard session cookie. |
+| `DASHBOARD_SESSION_SECRET` | Yes for dashboard | Dashboard | Preferred HMAC-SHA256 session signing secret. Use a long random value unique to each environment. |
 | `NODE_ENV` | No | Bot, dashboard | `development` or `production`. Defaults to `development`. |
 | `LOG_LEVEL` | No | Bot | pino log level. Defaults to `info`. |
 | `PORT` | No | Dashboard host | Port for `next start`. Next.js reads it natively. Defaults to `3000`. |
@@ -220,7 +220,7 @@ npm run dev:bot        # tsx watch apps/bot/src/index.ts
 npm run dev:dashboard  # next dev on http://localhost:3000
 ```
 
-Production build:
+Production build (bot and dashboard):
 
 ```sh
 npm run build
@@ -237,7 +237,10 @@ docs/DEPLOYMENT.md).
 
 ## 10. Verify the setup
 
-1. In Discord, run `/help`. All commands should be listed.\n2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.\n3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.\n4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
+1. In Discord, run `/help`. All commands should be listed.
+2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.
+3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.
+4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.\n2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.\n3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.\n4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
 2. Run `/profile`. You should see your balances (0 Overpoints,
    0 Overcredits) and rank.
 3. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day.
@@ -256,8 +259,9 @@ docs/DEPLOYMENT.md).
 No database and no generated Prisma Client are needed for these:
 
 ```sh
-npm --workspace apps/bot run test      # vitest run, 42 tests
-npm --workspace apps/bot run typecheck # tsc --noEmit, must exit 0
+npm test                 # bot Vitest suite
+npm run typecheck        # bot and dashboard TypeScript checks
+npm run build            # bot and dashboard production builds
 ```
 
 The bot tests cover daily limits, point values, atomicity invariants,
@@ -271,7 +275,11 @@ and the database layer uses lazy initialisation
 Tests that need a live database do not exist yet; that is an open gap,
 see docs/ARCHITECTURE.md.
 
-A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma\ngeneration and validation, both TypeScript checks, the bot tests and\nthe full production build on pushes and pull requests.\n\n## 12. Troubleshooting
+A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma\ngeneration and validation, both TypeScript checks, the bot tests and\nthe full production build on pushes and pull requests.\n\nA GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma
+generation and validation, both TypeScript checks, the bot tests and
+the full production build on pushes and pull requests.
+
+## 12. Troubleshooting
 
 - `Missing or invalid environment configuration: ...` at bot startup:
   a required variable from the table in section 3 is missing or empty.
