@@ -5,7 +5,7 @@ import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
 import { getInfoContent, getConfig, clearConfigCache, setInfoContent } from "../lib/config.js";
 import { awardDailyCheckin, awardEvent, awardWeeklyChallenge, awardHelpful, awardApprovedContribution } from "../modules/economy/service.js";
 import { hasPermission } from "../lib/permissions.js";
-import { listActive, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
+import { listActive, listSubmissions, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
 import { checkAndGrant, listMemberAchievements } from "../modules/achievements/service.js";
 import { listRewards, claimReward, approveClaim, rejectClaim, fulfillClaim } from "../modules/rewards/service.js";
 import { createTicketChannel, claimTicket, closeTicket, findTicketByChannel, formatTicketNumber } from "../modules/tickets/service.js";
