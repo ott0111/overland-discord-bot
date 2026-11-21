@@ -8,7 +8,9 @@ import { getXConfig } from "../modules/x-integration/service.js";
 
 export function registerJobs(client?: Client): void {
   registerJob("referral-retention", async (payload) => {
-    await checkRetention7d(String(payload.referralId));
+    const referral = await prisma.referral.findUnique({ where: { id: String(payload.referralId) }, include: { referred: true } });
+    const guild = referral && client ? await client.guilds.fetch(referral.referred.guildId).catch(() => undefined) : undefined;
+    await checkRetention7d(String(payload.referralId), guild);
   });
 
   registerJob("x-poll", async () => {
