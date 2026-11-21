@@ -55,7 +55,7 @@ export async function revokeRole(memberId: string, roleName: string, actorId: st
   const removedNames = await prisma.$transaction(async (tx) => {
     // Serialize all role-ledger changes for this member so a prerequisite
     // cannot be granted or removed while the dependency cascade is running.
-    await tx.$queryRaw\`SELECT pg_advisory_xact_lock(hashtext(\${memberId}))\`;
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${memberId}))`;
 
     const allRoles = await tx.role.findMany({
       select: { id: true, name: true, requiresRoleId: true, isInternal: true },
