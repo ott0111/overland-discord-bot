@@ -32,7 +32,7 @@ async function openTicket(i) {
   const record = {
     id: "OV-" + Date.now().toString(36).toUpperCase(), channelId: channel.id, ownerId: i.user.id,
     ownerTag: i.user.tag, category, status: "OPEN", claimedBy: null, createdAt: new Date().toISOString(),
-    closedAt: null, feedback: null
+    closedAt: null, lastActivityAt: new Date().toISOString(), feedback: null
   };
   g.tickets.unshift(record);
   await saveStore();
