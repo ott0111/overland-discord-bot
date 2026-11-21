@@ -44,7 +44,7 @@ export const DEFAULT_GROUP_PERMISSIONS: Record<string, readonly PermissionKey[]>
 };
 
 export const DEFAULT_POINT_VALUES = {
-  community: { dailyCheckin: 5, participation: 2, helpfulAnswer: 5, eventParticipation: 15, weeklyChallenge: 20, approvedContribution: 20 },
+  community: { dailyCheckin: 5, participation: 2, helpfulAnswer: 5, eventParticipation: 15, weeklyChallenge: 20, approvedContribution: 20, streakBonus: 10 },
   social: { xPost: 15, infographic: 25, educationalThread: 30, article: 30, campaignContribution: 20, video: 30 },
   referral: { verifiedReferral: 10, sevenDayActive: 10, comradeBonus: 5 },
   contribution: { graphic: 25, research: 30, article: 30, feedback: 15, initiative: 40, significantMin: 50, significantMax: 100 },
