@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma, audit } from "../../lib/db.js";
 import { awardPoints } from "../../lib/points.js";
 import { getPointValues } from "../../lib/config.js";
@@ -161,10 +162,8 @@ export async function reviewSubmission(
   const fallback = (values.social as unknown as Record<string, number>).campaignContribution ?? submission.campaign.pointReward;
   const amount = pointsOverride ?? submission.campaign.pointReward ?? fallback;
   if (amount < 0) throw new Error("Award amount must not be negative");
-  const result = await prisma.$transaction(async (tx: never) => {
-    const updated = await (tx as unknown as {
-      campaignSubmission: { update: (args: unknown) => Promise<unknown> };
-    }).campaignSubmission.update({
+  const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+    const updated = await tx.campaignSubmission.update({
       where: { id: submissionId },
       data: {
         status: "APPROVED",
@@ -187,7 +186,7 @@ export async function reviewSubmission(
           actorId: staffDiscordId,
           idempotencyKey: `campaign-${submissionId}`,
         },
-        tx as never,
+        tx,
       );
     }
     return { submission: updated, awarded };
