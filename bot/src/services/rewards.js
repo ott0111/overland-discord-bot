@@ -21,7 +21,7 @@ export async function reviewClaim(guildId,claimId,action,actorId) {
  if(!c||c.status!=="PENDING") throw new Error("Pending claim not found.");
  const r=g.rewards.find(x=>x.id===c.rewardId), m=getMember(guildId,c.memberId);
  if(action==="approve") c.status="APPROVED";
- else { c.status="REJECTED"; m.overcredits+=c.costOvercredits; if(r&&r.stock!==null&&r.stock!==undefined) r.stock++; }
+ else { c.status="REJECTED"; m.overcredits+=c.costOvercredits; if(r&&r.stock!==null&&r.stock!==undefined) r.stock++; g.transactions.unshift({id:crypto.randomUUID(),memberId:m.id,username:m.username,currency:"OVERCREDITS",category:"refund",amount:c.costOvercredits,balanceAfter:m.overcredits,source:"REWARD_REFUND",reason:r?.name||"Reward claim rejected",actorId,idempotencyKey:"refund:"+c.id,at:new Date().toISOString()}); }
  c.reviewedBy=actorId; c.reviewedAt=new Date().toISOString(); await saveStore(); return c;
 }
 
