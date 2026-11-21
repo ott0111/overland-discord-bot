@@ -561,10 +561,33 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Review failed.")] });
     }
   } },
-  { data: new SlashCommandBuilder().setName("rewards").setDescription("Browse the rewards marketplace"), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("rewards").setDescription("Browse the Overland rewards marketplace"), execute: async (i) => {
     await i.deferReply();
-    const list = await listRewards(true);
-    await i.editReply({ embeds: [overlandEmbed("Rewards marketplace", list.map((r: { name: string; costOvercredits: number; stock: number | null; id: string }) => `${r.name} - ${r.costOvercredits} Overcredits${r.stock !== null ? ` (stock: ${r.stock})` : ""} (id: ${r.id})`).join("\n") || "No rewards available right now.")] });
+    const list = (await listRewards(true)).slice(0, 25);
+    if (list.length === 0) {
+      await i.editReply({ embeds: [overlandEmbed("Rewards marketplace", "No rewards are available right now. Check back later.")] });
+      return;
+    }
+    const description = list.map((reward: { name: string; description: string; costOvercredits: number; stock: number | null; eligibility: string | null }, index: number) =>
+      "**" + (index + 1) + ". " + reward.name + "** · " + reward.costOvercredits + " Overcredits" +
+      (reward.stock !== null ? " · " + reward.stock + " available" : " · Unlimited stock") +
+      "\n" + reward.description.slice(0, 220) +
+      (reward.eligibility ? "\nEligibility: " + reward.eligibility : "")
+    ).join("\n\n").slice(0, 3900);
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    for (let offset = 0; offset < list.length; offset += 5) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...list.slice(offset, offset + 5).map((reward) =>
+          new ButtonBuilder()
+            .setCustomId("overland:reward:claim:" + reward.id)
+            .setLabel(("Claim " + reward.name).slice(0, 80))
+            .setStyle(ButtonStyle.Success)
+        )
+      ));
+    }
+    const embed = overlandEmbed("Overland rewards marketplace", description);
+    if (list[0]?.imageUrl) embed.setThumbnail(list[0].imageUrl);
+    await i.editReply({ embeds: [embed], components: rows });
   } },
   { data: new SlashCommandBuilder().setName("claim").setDescription("Claim a reward with Overcredits").addStringOption((o) => o.setName("reward").setDescription("Reward ID").setRequired(true)), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
