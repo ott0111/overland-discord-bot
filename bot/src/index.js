@@ -165,5 +165,6 @@ const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache
 async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
+await ownerBootstrap();
 startCoreApi();
 await client.login(token);
