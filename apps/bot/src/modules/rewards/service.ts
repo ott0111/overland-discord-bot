@@ -108,6 +108,7 @@ export async function claimReward(memberId: string, rewardId: string) {
   const idempotencyKey = `claim-${memberId}-${rewardId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
     const result = await prisma.$transaction(async (tx: any) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${memberId}))`;
       const reward = await tx.reward.findUnique({ where: { id: rewardId } });
       if (!reward || !reward.active) throw new Error("Reward is not available");
 
