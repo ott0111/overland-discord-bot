@@ -23,7 +23,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      - run: npm ci
+      - run: npm install --no-audit --no-fund
       - run: npx prisma generate --schema prisma/schema.prisma
       - run: npm run prisma:validate
       - run: npm run typecheck
