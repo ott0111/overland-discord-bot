@@ -126,9 +126,16 @@ export function registerAutomations(client){
           await channel.send({embeds:[embed("TICKET CLOSED FOR INACTIVITY","This ticket was automatically archived after 72 hours without a new message. You can open another ticket if you still need help.")]}).catch(()=>{});
           await log(guild,"TICKET AUTO-ARCHIVED","Ticket "+ticket.id+" was closed after 72 hours of inactivity.",BRAND.warning);
         }
+        for(const temp of g.tempRoles.filter(x=>x.expiresAt<=now)){
+          const member=await guild.members.fetch(temp.userId).catch(()=>null);
+          const role=await guild.roles.fetch(temp.roleId).catch(()=>null);
+          if(member&&role&&member.roles.cache.has(role.id))await member.roles.remove(role,"Overland temporary role expired").catch(()=>{});
+          g.tempRoles=g.tempRoles.filter(x=>x!==temp);
+          await log(guild,"TEMPORARY ROLE EXPIRED","Role <@&"+temp.roleId+"> expired for <@"+temp.userId+">.");
+        }
         await saveStore();
       }catch(e){console.error("[TicketInactivity]",e);}
     }
-  },10*60*1000);
+  },60*1000);
   client.once(Events.ClientReady,()=>console.log("[Automations] Security, audit logs, voice tracking, and ticket inactivity monitoring enabled."));
 }
