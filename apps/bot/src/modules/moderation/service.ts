@@ -108,11 +108,8 @@ export async function timeoutMember(targetDiscordId: string, actorId: string, mi
     throw new Error("Timeout must be between 1 minute and 28 days (40320 minutes)");
   }
   const member = await fetchGuildMember(guild, targetDiscordId);
-  if (member) {
-    await member.timeout(minutes * 60 * 1000, reason).catch((err) => {
-      logger.warn({ err }, "Discord timeout failed, recording action anyway");
-    });
-  }
+  if (!member) throw new Error("Member is not in this server");
+  await member.timeout(minutes * 60 * 1000, reason);
   return recordAction(targetDiscordId, actorId, "TIMEOUT", reason, minutes);
 }
 
@@ -120,26 +117,24 @@ export async function timeoutMember(targetDiscordId: string, actorId: string, mi
 export async function kickMember(targetDiscordId: string, actorId: string, reason: string, guild?: Guild) {
   await requireModeration(actorId);
   const member = await fetchGuildMember(guild, targetDiscordId);
-  if (member) await member.kick(reason).catch((err) => logger.warn({ err }, "Discord kick failed"));
+  if (!member) throw new Error("Member is not in this server");
+  await member.kick(reason);
   return recordAction(targetDiscordId, actorId, "KICK", reason);
 }
 
 /** Ban a member and record it. */
 export async function banMember(targetDiscordId: string, actorId: string, reason: string, guild?: Guild) {
   await requireModeration(actorId);
-  const member = await fetchGuildMember(guild, targetDiscordId);
-  if (guild) {
-    await guild.members.ban(targetDiscordId, { reason }).catch((err) => logger.warn({ err }, "Discord ban failed"));
-  } else if (member) {
-    await member.ban({ reason }).catch(() => undefined);
-  }
+  if (!guild) throw new Error("This command must be used in a server");
+  await guild.members.ban(targetDiscordId, { reason });
   return recordAction(targetDiscordId, actorId, "BAN", reason);
 }
 
 /** Unban a member by Discord id and record it. */
 export async function unbanMember(targetDiscordId: string, actorId: string, reason: string, guild?: Guild) {
   await requireModeration(actorId);
-  if (guild) await guild.members.unban(targetDiscordId, reason).catch((err) => logger.warn({ err }, "Discord unban failed"));
+  if (!guild) throw new Error("This command must be used in a server");
+  await guild.members.unban(targetDiscordId, reason);
   return recordAction(targetDiscordId, actorId, "UNBAN", reason);
 }
 
