@@ -53,7 +53,7 @@ async function closeTicket(i) {
   const channel = i.channel;
   if (!isTicket(channel)) throw new Error("Use this command inside an Overland ticket.");
   const g = getGuild(i.guildId);
-  const ownerId = channel.topic.startsWith("overland-ticket:") ? channel.topic.slice(15) : channel.topic.slice(22);
+  const ownerId = channel.topic.startsWith("overland-ticket:") ? channel.topic.slice(16) : channel.topic.slice(23);
   const staff = i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
   if (ownerId !== i.user.id && !staff) throw new Error("Only the ticket creator or authorized staff can close this ticket.");
   if (channel.topic.startsWith("overland-ticket-closed:")) return reply(i, "Ticket already closed", "This ticket has already been archived.");
