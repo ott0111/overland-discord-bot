@@ -108,11 +108,41 @@ export async function pollXPosts(client?: Client) {
   if (!config.enabled || !xEnabled()) {
     return { enabled: false, announced: 0, skipped: 0, reason: "X integration is not configured (X_BEARER_TOKEN missing or disabled in config)" };
   }
+  let announced = 0;
+  let skipped = 0;
+  // Retry previously stored posts that were not announced because the bot or channel was unavailable.
+  const pending = await prisma.xPost.findMany({
+    where: {
+      announcedAt: null,
+      ...(config.ignoreReplies ? { isReply: false } : {}),
+      ...(config.ignoreReposts ? { isRepost: false } : {}),
+    },
+    orderBy: { createdAt: "asc" },
+    take: 100,
+  });
+  if (client && config.channelId) {
+    for (const row of pending) {
+      const mediaUrls = Array.isArray(row.mediaUrls)
+        ? row.mediaUrls.filter((value): value is string => typeof value === "string")
+        : [];
+      const sent = await postToAnnouncementChannel(client, config.channelId, {
+        id: row.postId, authorUsername: row.authorUsername, text: row.text,
+        url: row.url, mediaUrls, isReply: row.isReply, isRepost: row.isRepost,
+      });
+      if (sent) {
+        await prisma.xPost.update({
+          where: { id: row.id },
+          data: { announcedAt: new Date(), announcedChannelId: config.channelId },
+        });
+        announced += 1;
+      } else skipped += 1;
+    }
+  } else {
+    skipped += pending.length;
+  }
   const latest = await prisma.xPost.findFirst({ orderBy: { createdAt: "desc" } });
   const posts = await fetchRecentXPosts(config.username, latest?.postId);
   if (!posts) return { enabled: false, announced: 0, skipped: 0, reason: "X API returned no data" };
-  let announced = 0;
-  let skipped = 0;
   for (const post of posts) {
     if (!shouldAnnouncePost(post, config.ignoreReplies, config.ignoreReposts)) { skipped += 1; continue; }
     const existing = await prisma.xPost.findUnique({ where: { postId: post.id } });
