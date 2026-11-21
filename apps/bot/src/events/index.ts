@@ -58,19 +58,30 @@ export function registerEvents(client: Client): void {
         const used = currentInvites.find((invite) =>
           (invite.uses ?? 0) > (inviteUses.get(inviteCacheKey(member.guild.id, invite.code)) ?? 0));
         for (const invite of currentInvites.values()) inviteUses.set(inviteCacheKey(member.guild.id, invite.code), invite.uses ?? 0);
-        if (used?.inviter && used.inviter.id !== member.id) {
-          const inviterUser = await prisma.user.upsert({
-            where: { discordId: used.inviter.id },
-            update: { username: used.inviter.username },
-            create: { discordId: used.inviter.id, username: used.inviter.username },
+        if (used) {
+          // Bot-created invite links have the bot as their Discord inviter,
+          // so resolve the actual member owner from our persisted invite map.
+          const ownedInvite = await prisma.referralInvite.findUnique({
+            where: { inviteCode: used.code },
+            include: { member: { include: { user: true } } },
           });
-          await prisma.discordMember.upsert({
-            where: { userId: inviterUser.id },
-            update: {},
-            create: { userId: inviterUser.id, guildId: member.guild.id },
-          });
-          await recordJoin(used.inviter.id, member.id, used.code).catch((err) =>
-            logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
+          const referrerDiscordId = ownedInvite?.member.user.discordId ??
+            (used.inviter && used.inviter.id !== client.user?.id ? used.inviter.id : null);
+
+          if (referrerDiscordId && referrerDiscordId !== member.id) {
+            const inviterUser = await prisma.user.upsert({
+              where: { discordId: referrerDiscordId },
+              update: { username: ownedInvite?.member.user.username ?? used.inviter?.username ?? "Unknown" },
+              create: { discordId: referrerDiscordId, username: ownedInvite?.member.user.username ?? used.inviter?.username ?? "Unknown" },
+            });
+            await prisma.discordMember.upsert({
+              where: { userId: inviterUser.id },
+              update: {},
+              create: { userId: inviterUser.id, guildId: member.guild.id },
+            });
+            await recordJoin(referrerDiscordId, member.id, used.code).catch((err) =>
+              logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
+          }
         }
       }
 
