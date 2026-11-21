@@ -72,7 +72,7 @@ export async function PATCH(req: Request) {
         const transition = await tx.rewardClaim.updateMany({
           where: {
             id: current.id,
-            status: body.status === "FULFILLED" ? "APPROVED" : "PENDING",
+            status: body.status === "FULFILLED" ? "APPROVED" : body.status === "REJECTED" ? { in: ["PENDING", "APPROVED"] } : "PENDING",
           },
           data: { status: body.status as never, reviewedBy: session?.discordId ?? null },
         });
