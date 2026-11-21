@@ -103,6 +103,58 @@ export function registerEvents(client: Client): void {
     }
   });
 
+  client.on(Events.GuildMemberUpdate, async (oldMember: GuildMember, newMember: GuildMember) => {
+    try {
+      const managedRoles = await prisma.role.findMany({
+        where: { isInternal: false, discordRoleId: { not: null } },
+      });
+      const changedRoles = managedRoles.filter((role) =>
+        oldMember.roles.cache.has(role.discordRoleId!) !== newMember.roles.cache.has(role.discordRoleId!),
+      );
+      if (changedRoles.length === 0) return;
+
+      const user = await prisma.user.findUnique({ where: { discordId: newMember.id } });
+      const member = user
+        ? await prisma.discordMember.findUnique({ where: { userId: user.id } })
+        : null;
+
+      for (const role of changedRoles) {
+        const shouldHave = member
+          ? Boolean(await prisma.memberRole.findUnique({
+              where: { memberId_roleId: { memberId: member.id, roleId: role.id } },
+            }))
+          : false;
+        const currentlyHas = newMember.roles.cache.has(role.discordRoleId!);
+        if (shouldHave === currentlyHas) continue;
+
+        if (shouldHave) {
+          await newMember.roles.add(role.discordRoleId!, "Restore Overland-managed role from the member role ledger");
+        } else {
+          await newMember.roles.remove(role.discordRoleId!, "Remove role not authorized by the Overland role ledger");
+        }
+
+        if (member) {
+          await prisma.roleHistory.create({
+            data: {
+              memberId: member.id,
+              roleId: role.id,
+              action: shouldHave ? "RESTORE_UNAUTHORIZED_CHANGE" : "REVOKE_UNAUTHORIZED_CHANGE",
+              actorId: null,
+              reason: "Discord role change did not match the Overland role ledger",
+            },
+          }).catch(() => undefined);
+        }
+        await audit(null, "roles.unauthorized_discord_change", "Role", role.id, {
+          discordId: newMember.id,
+          roleName: role.name,
+          restored: shouldHave,
+        });
+      }
+    } catch (err) {
+      logger.error({ err, memberId: newMember.id }, "Could not enforce Overland-managed role state");
+    }
+  });
+
   client.on(Events.MessageCreate, async (msg: Message) => {
     if (msg.author.bot || !msg.guild || !msg.member) return;
     try {
