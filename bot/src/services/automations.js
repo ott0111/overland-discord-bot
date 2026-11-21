@@ -14,6 +14,7 @@ export function registerAutomations(client){
     try{
       const g=getGuild(member.guild.id);
       await log(member.guild,"MEMBER JOINED",member.user.tag+" ("+member.id+") joined. Account created <t:"+Math.floor(member.user.createdTimestamp/1000)+":R>.");
+      if(member.guild.memberCount%100===0)await log(member.guild,"COMMUNITY MILESTONE","Overland has reached **"+member.guild.memberCount.toLocaleString()+" members**.",BRAND.success);
       await saveStore();
     }catch(e){console.error("[MemberJoin]",e);}
   });
@@ -35,6 +36,7 @@ export function registerAutomations(client){
   client.on(Events.MessageCreate,async m=>{
     if(!m.guild||m.author.bot)return;
     const g=getGuild(m.guild.id),cfg=g.settings.security,now=Date.now(),key=m.guild.id+":"+m.author.id;
+    const ticket=g.tickets.find(t=>t.channelId===m.channelId&&t.status==="OPEN");if(ticket)ticket.lastActivityAt=new Date().toISOString();
     const recent=(windows.get(key)||[]).filter(t=>now-t<cfg.spamWindowMs);recent.push(now);windows.set(key,recent);
     const link=/https?:\/\/|discord\.gg\/|www\./i.test(m.content),allowed=cfg.allowedDomains.some(d=>m.content.toLowerCase().includes(d.toLowerCase()));
     const mentions=m.mentions.users.size+m.mentions.roles.size;
@@ -73,7 +75,8 @@ export function registerAutomations(client){
         if(started){const mins=Math.max(0,Math.floor((Date.now()-started)/60000));cfg.voiceStats[member.id]=(cfg.voiceStats[member.id]||0)+mins;g.stats.voiceMinutes+=mins;delete cfg.voiceSessions[member.id];}
         await log(guild,"VOICE LEFT",member.user.tag+" left "+oldS.channel?.name+".");
       }else if(!oldS.channelId&&newS.channelId){
-        cfg.voiceSessions[member.id]=Date.now();await log(guild,"VOICE JOINED",member.user.tag+" joined "+newS.channel.name+".");
+        if(guild.afkChannelId===newS.channelId)await log(guild,"AFK DETECTED",member.user.tag+" entered the server AFK channel.");
+        else cfg.voiceSessions[member.id]=Date.now();await log(guild,"VOICE JOINED",member.user.tag+" joined "+newS.channel.name+".");
         if(cfg.enabled&&cfg.lobbyChannelId===newS.channelId){
           const room=await guild.channels.create({name:(member.user.username+"'s room").slice(0,95),type:ChannelType.GuildVoice,parent:cfg.categoryId||undefined,permissionOverwrites:[{id:guild.roles.everyone.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.Connect]},{id:member.id,allow:[PermissionFlagsBits.ManageChannels,PermissionFlagsBits.MoveMembers]}]});
           cfg.autoVoiceRooms[room.id]=member.id;await member.voice.setChannel(room).catch(()=>{});
@@ -108,4 +111,24 @@ export function registerAutomations(client){
       }
     }catch(e){if(!i.replied&&!i.deferred)await i.reply({content:e.message,ephemeral:true}).catch(()=>{});}
   });
+  const inactivityTimer=setInterval(async()=>{
+    for(const guild of client.guilds.cache.values()){
+      try{
+        const g=getGuild(guild.id),now=Date.now();
+        for(const ticket of g.tickets.filter(t=>t.status==="OPEN"&&now-new Date(t.lastActivityAt||t.createdAt).getTime()>72*60*60*1000)){
+          const channel=await guild.channels.fetch(ticket.channelId).catch(()=>null);
+          if(!channel)continue;
+          await channel.permissionOverwrites.edit(ticket.ownerId,{ViewChannel:false,SendMessages:false}).catch(()=>{});
+          await channel.setTopic("overland-ticket-closed:"+ticket.ownerId).catch(()=>{});
+          await channel.setName(("closed-"+channel.name).slice(0,95)).catch(()=>{});
+          if(g.settings.ticketArchiveCategoryId)await channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
+          ticket.status="CLOSED";ticket.closedAt=new Date().toISOString();ticket.closedBy="SYSTEM_INACTIVITY";
+          await channel.send({embeds:[embed("TICKET CLOSED FOR INACTIVITY","This ticket was automatically archived after 72 hours without a new message. You can open another ticket if you still need help.")]}).catch(()=>{});
+          await log(guild,"TICKET AUTO-ARCHIVED","Ticket "+ticket.id+" was closed after 72 hours of inactivity.",BRAND.warning);
+        }
+        await saveStore();
+      }catch(e){console.error("[TicketInactivity]",e);}
+    }
+  },10*60*1000);
+  client.once(Events.ClientReady,()=>console.log("[Automations] Security, audit logs, voice tracking, and ticket inactivity monitoring enabled."));
 }
