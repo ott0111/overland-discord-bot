@@ -10,7 +10,11 @@ function pointValues(values: unknown): PointValues {
 export async function awardDailyCheckin(memberId: string, streak: number) {
   const values = pointValues(await getPointValues());
   const amount = values.community.dailyCheckin ?? 5;
-  const key = "daily-" + memberId + "-" + new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const localDateKey = now.getFullYear() + "-" +
+    String(now.getMonth() + 1).padStart(2, "0") + "-" +
+    String(now.getDate()).padStart(2, "0");
+  const key = "daily-" + memberId + "-" + localDateKey;
   const result = await awardPointsWithinDailyLimit({
     memberId,
     currency: "OVERPOINTS",
