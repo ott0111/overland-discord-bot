@@ -80,12 +80,11 @@ export async function checkRetention7d(referralId: string, guild?: Guild) {
   if (!referral || referral.retained7d || !referral.verified) return referral;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   if (referral.createdAt > sevenDaysAgo) return referral;
+  if (!guild) return referral;
   const referred = await prisma.discordMember.findUnique({ where: { id: referral.referredId }, include: { user: true } });
   if (!referred) return referral;
-  if (guild) {
-    const stillPresent = await guild.members.fetch(referred.user.discordId).then(() => true).catch(() => false);
-    if (!stillPresent) return referral;
-  }
+  const stillPresent = await guild.members.fetch(referred.user.discordId).then(() => true).catch(() => false);
+  if (!stillPresent) return referral;
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).sevenDayActive ?? 10;
   await awardPoints({
