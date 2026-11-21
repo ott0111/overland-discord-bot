@@ -22,6 +22,7 @@ function validateUrl(value: string): string {
   let parsed: URL;
   try { parsed = new URL(value); } catch { throw new Error("Enter a valid full URL, including https://"); }
   if (parsed.protocol !== "https:") throw new Error("Only HTTPS links are allowed.");
+  if (value.length > 500) throw new Error("Link URLs must be 500 characters or fewer.");
   if (parsed.username || parsed.password) throw new Error("Links cannot contain embedded credentials.");
   return parsed.toString();
 }
@@ -67,6 +68,6 @@ export async function updateWelcomeSettings(actorId: string, patch: Partial<Welc
   if (next.title.length > 256 || next.message.length > 3500) throw new Error("Welcome title or message is too long.");
   await prisma.botConfiguration.upsert({ where: { key: "welcome" }, update: { value: next as never, updatedBy: actorId }, create: { key: "welcome", value: next as never, updatedBy: actorId } });
   clearConfigCache("welcome");
-  await audit(actorId, "settings.welcome_update", "BotConfiguration", "welcome", patch as Record<string, unknown>);
+  await audit(actorId, "settings.welcome_update", "BotConfiguration", "welcome", { ...patch });
   return next;
 }
