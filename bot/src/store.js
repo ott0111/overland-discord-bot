@@ -22,7 +22,7 @@ const defaults = () => ({
   },
   members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
-  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [], vouches: [], reports: [], appeals: [], suggestions: [], staffNotes: [], tempRoles: [], tempVoiceChannels: [], reminders: [], lockdown: { active: false, channels: [] },
+  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [], vouches: [], reports: [], appeals: [], suggestions: [], staffNotes: [], blacklist: [], tempRoles: [], tempVoiceChannels: [], reminders: [], lockdown: { active: false, channels: [] },
   stats: { messages: 0, joins: 0, leaves: 0 }
 });
 
@@ -57,7 +57,7 @@ function normalizeGuild(guild) {
   guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
   guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };
   guild.settings.selfRoles ||= [];
-  for (const key of ["vouches","reports","appeals","suggestions","staffNotes","tempRoles","tempVoiceChannels","reminders"]) guild[key] ||= [];
+  for (const key of ["vouches","reports","appeals","suggestions","staffNotes","blacklist","tempRoles","tempVoiceChannels","reminders"]) guild[key] ||= [];
   guild.lockdown ||= { active: false, channels: [] };
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
   guild.members ||= {};
