@@ -152,7 +152,7 @@ function socialsCmd(): Command {
     data: new SlashCommandBuilder().setName("socials").setDescription("View Overland's configured social links"),
     execute: async (i) => {
       const links = await getSavedLinks();
-      const embed = overlandEmbed("Overland socials", links.map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n") || "Social links haven't been configured yet.");
+      const embed = overlandEmbed("Overland socials", links.slice(0, 25).map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n").slice(0, 4000) || "Social links have not been configured yet.");
       const rows: ActionRowBuilder<ButtonBuilder>[] = [];
       for (let n = 0; n < Math.min(links.length, 25); n += 5) {
         rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links.slice(n, n + 5).map((x) =>
