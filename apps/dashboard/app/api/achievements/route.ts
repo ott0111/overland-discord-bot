@@ -4,7 +4,7 @@ import { requireStaff, writeAudit } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "achievements.manage");
   if (error) return error;
   try {
     const achievements = await prisma.achievement.findMany({
