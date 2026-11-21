@@ -10,7 +10,7 @@ export const INTERNAL_ROLES = ["Founder","Admin","Warden"] as const;
 export const PERMISSION_GROUPS = ["Owner","Executive","Administration","Moderation","Development","Support","Rewards Management"] as const;
 export const PERMISSIONS = [
   "team.view","team.manage","roles.assign","roles.manage","economy.adjust","economy.view",
-  "campaigns.manage","campaigns.review","referrals.view","rewards.manage","rewards.review",
+  "campaigns.manage","campaigns.review","community.manage","referrals.view","rewards.manage","rewards.review",
   "tickets.view","tickets.manage","moderation.action","moderation.view","config.manage",
   "x.manage","analytics.view","audit.view","achievements.manage",
 ] as const;
@@ -19,7 +19,7 @@ export type PermissionKey = (typeof PERMISSIONS)[number];
 export const DEFAULT_GROUP_PERMISSIONS: Record<string, readonly PermissionKey[]> = {
   Executive: [
     "team.view", "roles.assign", "roles.manage", "economy.view", "economy.adjust",
-    "campaigns.manage", "campaigns.review", "referrals.view", "rewards.manage",
+    "campaigns.manage", "campaigns.review", "community.manage", "referrals.view", "rewards.manage",
     "rewards.review", "tickets.view", "tickets.manage", "moderation.view",
     "analytics.view", "audit.view", "achievements.manage",
   ],
