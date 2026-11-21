@@ -157,24 +157,48 @@ async function progressionConfig(): Promise<ProgressionThresholds> {
 export async function checkProgression(memberId: string, actorId: string, guild?: Guild): Promise<string[]> {
   const thresholds = await progressionConfig();
   const balance = await prisma.pointBalance.findUnique({ where: { memberId } });
-  const approved = await prisma.campaignSubmission.count({ where: { memberId, status: "APPROVED" } });
+  const creativeSubmissions = await prisma.campaignSubmission.count({
+    where: { memberId, status: "APPROVED", category: "creative" },
+  });
+  const researchPoints = await prisma.campaignSubmission.aggregate({
+    where: { memberId, status: "APPROVED", category: { in: ["research", "education"] } },
+    _sum: { pointsAwarded: true },
+  });
   const granted: string[] = [];
-  const tryGrant = async (roleName: string, qualifies: boolean) => {
-    if (!qualifies) return;
+
+  const evaluate = async (roleName: string, qualifies: boolean) => {
     const role = await prisma.role.findUnique({ where: { name: roleName } });
-    if (!role) return;
-    const has = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId, roleId: role.id } } });
-    if (has) return;
-    try {
-      await assignRole(memberId, roleName, actorId, "Progression threshold reached", guild);
-      granted.push(roleName);
-    } catch {
-      // Prerequisite not met (for example Comrade needing Citizen): skip.
+    if (!role || role.isInternal) return;
+    const held = await prisma.memberRole.findUnique({
+      where: { memberId_roleId: { memberId, roleId: role.id } },
+    });
+
+    if (qualifies && !held) {
+      try {
+        await assignRole(memberId, roleName, actorId, "Progression threshold reached", guild);
+        granted.push(roleName);
+      } catch {
+        // Missing prerequisite or deleted Discord role; staff can review history.
+      }
+      return;
+    }
+
+    if (!qualifies && held) {
+      const latestGrant = await prisma.roleHistory.findFirst({
+        where: { memberId, roleId: role.id, action: "GRANT" },
+        orderBy: { createdAt: "desc" },
+      });
+      // Only automatically remove roles originally earned through progression.
+      // Staff-awarded recognition and manually configured roles are preserved.
+      if (latestGrant?.reason === "Progression threshold reached") {
+        await removeRole(memberId, roleName, actorId, "Progression requirement no longer met", guild);
+      }
     }
   };
-  await tryGrant("Socialite", (balance?.communityPoints ?? 0) >= thresholds.socialiteMinCommunityPoints);
-  await tryGrant("Creator", approved >= thresholds.creatorMinApprovedSubmissions);
-  await tryGrant("Intellect", (balance?.contributionPoints ?? 0) >= thresholds.intellectMinContributionPoints);
+
+  await evaluate("Socialite", (balance?.communityPoints ?? 0) >= thresholds.socialiteMinCommunityPoints);
+  await evaluate("Creator", creativeSubmissions >= thresholds.creatorMinApprovedSubmissions);
+  await evaluate("Intellect", (researchPoints._sum.pointsAwarded ?? 0) >= thresholds.intellectMinContributionPoints);
   return granted;
 }
 
