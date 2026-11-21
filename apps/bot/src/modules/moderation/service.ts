@@ -230,7 +230,7 @@ export async function lockdownOff(actorId: string, guild?: Guild) {
     for (const [channelId, state] of Object.entries(snapshot)) {
       const channel = channels.get(channelId);
       if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) continue;
-      await channel.permissionOverwrites.edit(everyone, {
+      await (channel as import("discord.js").GuildChannel).permissionOverwrites.edit(everyone, {
         SendMessages: state === "allow" ? true : state === "deny" ? false : null,
       }).catch((err) => logger.warn({ err, channelId }, "Could not restore channel permissions after lockdown"));
     }
