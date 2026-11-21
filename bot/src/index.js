@@ -83,7 +83,7 @@ async function handleVerifyButton(i){
  m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
 }
-async function createTicket(i){
+async function createTicket(i,category="support"){
  const g=getGuild(i.guildId),guild=i.guild;
  const existing=guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.topic==="overland-ticket:"+i.user.id);
  if(existing)return i.reply({embeds:[embed("SUPPORT  /  OPEN TICKET","You already have an active support room: "+existing)],flags:MessageFlags.Ephemeral});
@@ -95,10 +95,10 @@ async function createTicket(i){
  ];
  if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]});
  const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
- const ch=await guild.channels.create({name:"ticket-support-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
- const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category:"support",status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
+ const ch=await guild.channels.create({name:"ticket-"+category+"-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
+ const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
  g.tickets.unshift(record);await saveStore();
- const ticketEmbed=embed("OVERLAND SUPPORT  /  NEW REQUEST","Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
+ const ticketEmbed=embed("OVERLAND SUPPORT  /  "+category.toUpperCase(),"Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
   .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
  await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[ticketEmbed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
  await i.reply({embeds:[embed("TICKET CREATED","Your private support channel is ready: "+ch+"\nReference: **"+record.id+"**")],flags:MessageFlags.Ephemeral});
@@ -107,6 +107,7 @@ async function handleInteraction(i){
  try{
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
+  if(i.isStringSelectMenu()&&i.customId==="overland:ticket:category")return await createTicket(i,i.values[0]);
   if(i.isButton()&&i.customId==="overland:ticket:close"){
    const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
    const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
