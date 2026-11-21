@@ -194,16 +194,26 @@ export async function lockdownOn(actorId: string, guild?: Guild) {
       if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) continue;
       const overwrite = channel.permissionOverwrites.cache.get(everyone.id);
       snapshot[channel.id] = overwrite?.allow.has("SendMessages") ? "allow" : overwrite?.deny.has("SendMessages") ? "deny" : "inherit";
-      await channel.permissionOverwrites.edit(everyone, { SendMessages: false }).catch((err) =>
-        logger.warn({ err, channelId: channel.id }, "Could not apply lockdown to channel"));
     }
   }
+  // Persist the rollback snapshot before changing Discord permissions.
   await prisma.botConfiguration.upsert({
     where: { key: "moderation" },
     update: { value: { ...config, lockdown: true, lockdownOverwrites: snapshot } as never, updatedBy: actorId },
     create: { key: "moderation", value: { ...config, lockdown: true, lockdownOverwrites: snapshot } as never, updatedBy: actorId },
   });
   clearConfigCache("moderation");
+  if (guild) {
+    const everyone = guild.roles.everyone;
+    const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+    for (const [channelId] of Object.entries(snapshot)) {
+      const channel = channels.get(channelId);
+      if (channel && channel.isTextBased() && "permissionOverwrites" in channel) {
+        await channel.permissionOverwrites.edit(everyone, { SendMessages: false }).catch((err) =>
+          logger.warn({ err, channelId }, "Could not apply lockdown to channel"));
+      }
+    }
+  }
   await audit(actorId, "moderation.lockdown_on", "BotConfiguration", "moderation", { channels: Object.keys(snapshot).length });
 }
 
