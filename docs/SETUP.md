@@ -240,19 +240,12 @@ docs/DEPLOYMENT.md).
 1. In Discord, run `/help`. All commands should be listed.
 2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.
 3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.
-4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.\n2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.\n3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.\n4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
-2. Run `/profile`. You should see your balances (0 Overpoints,
-   0 Overcredits) and rank.
-3. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day.
-   Run it again: it should say you already checked in today.
-4. Run `/leaderboard overall`. You should appear on it.
-5. Open http://localhost:3000 and sign in with Discord. If you are not
-   staff, you will see a staff-only message: that is the RBAC working.
-   A staff member sees the dashboard sections.
-6. Check the X integration state in the bot log at startup: with no
-   `X_BEARER_TOKEN` it logs that X polling is skipped. With a token and
-   the integration enabled in configuration, the first poll runs
-   immediately and then every 15 minutes.
+4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
+5. Run `/profile`. You should see your balances (0 Overpoints, 0 Overcredits) and rank.
+6. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day. Run it again: it should say you already checked in today.
+7. Run `/leaderboard` and choose a category. You should appear on it.
+8. Open http://localhost:3000 and sign in with Discord. If you are not staff, you will see a staff-only message: that is the RBAC working. A staff member sees the dashboard sections.
+9. Check the X integration state in the bot log at startup. With no `X_BEARER_TOKEN` it logs that X polling is skipped. With a token and the integration enabled, it polls at the configured interval.
 
 ## 11. Tests, typecheck and CI
 
@@ -275,7 +268,7 @@ and the database layer uses lazy initialisation
 Tests that need a live database do not exist yet; that is an open gap,
 see docs/ARCHITECTURE.md.
 
-A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma\ngeneration and validation, both TypeScript checks, the bot tests and\nthe full production build on pushes and pull requests.\n\nA GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma
+A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma
 generation and validation, both TypeScript checks, the bot tests and
 the full production build on pushes and pull requests.
 
