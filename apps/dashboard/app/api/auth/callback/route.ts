@@ -2,23 +2,46 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { exchangeCodeForSession, setSessionCookie } from "../../../../lib/auth";
 
+/**
+ * Match the returned OAuth state against every cookie with this name.
+ * Checking every occurrence also handles stale duplicate cookies left behind
+ * by earlier deployments that used a narrower cookie path.
+ */
 function validOAuthState(req: Request, returnedState: string | null): boolean {
   if (!returnedState) return false;
-  const cookie = req.headers.get("cookie")?.split(";").map((part) => part.trim())
-    .find((part) => part.startsWith("overland_oauth_state="));
-  if (!cookie) return false;
-  let stored: string;
-  try { stored = decodeURIComponent(cookie.slice("overland_oauth_state=".length)); } catch { return false; }
-  const expected = Buffer.from(stored);
+  const cookies = req.headers.get("cookie")?.split(";").map((part) => part.trim()) ?? [];
+  const values = cookies
+    .filter((part) => part.startsWith("overland_oauth_state="))
+    .map((part) => {
+      try {
+        return decodeURIComponent(part.slice("overland_oauth_state=".length));
+      } catch {
+        return "";
+      }
+    });
+
   const actual = Buffer.from(returnedState);
-  return expected.length === actual.length && timingSafeEqual(expected, actual);
+  let matched = false;
+  for (const stored of values) {
+    const expected = Buffer.from(stored);
+    if (expected.length === actual.length && timingSafeEqual(expected, actual)) {
+      matched = true;
+    }
+  }
+  return matched;
 }
 
 function clearOAuthState(res: NextResponse): void {
-  res.cookies.set("overland_oauth_state", "", {
-    httpOnly: true, secure: process.env.NODE_ENV === "production",
-    sameSite: "lax", path: "/api/auth/callback", maxAge: 0,
-  });
+  const options = {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax" as const,
+    maxAge: 0,
+  };
+  // Clear both the current root-scoped cookie and the callback-scoped cookie
+  // used by previous deployments.
+  res.cookies.set("overland_oauth_state", "", { ...options, path: "/" });
+  res.cookies.set("overland_oauth_state", "", { ...options, path: "/api/auth/callback" });
 }
 
 /** Discord OAuth2 callback with one-time state validation to prevent login CSRF. */

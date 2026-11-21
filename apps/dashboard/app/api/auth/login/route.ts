@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    path: "/api/auth/callback",
+    path: "/",
     maxAge: 600,
   });
   return response;
