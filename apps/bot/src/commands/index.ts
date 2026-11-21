@@ -170,7 +170,8 @@ function socialsCmd(): Command {
 function welcomeCmd(): Command {
   return {
     data: new SlashCommandBuilder().setName("welcome").setDescription("Configure the member welcome system")
-      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages")))
+      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages"))
+      .addBooleanOption((o) => o.setName("send_dm").setDescription("Also send a welcome DM")))
       .addSubcommand((s) => s.setName("preview").setDescription("Preview the current welcome message")),
     execute: async (i) => {
       const config = await getWelcomeSettings();
@@ -188,6 +189,7 @@ function welcomeCmd(): Command {
           title: i.options.getString("title") ?? config.title,
           message: i.options.getString("message") ?? config.message,
           enabled: i.options.getBoolean("enabled") ?? config.enabled,
+          sendDm: i.options.getBoolean("send_dm") ?? config.sendDm,
         });
         await i.editReply({ embeds: [overlandEmbed("Welcome system configured", "Channel: <#" + next.channelId + ">\nEnabled: " + (next.enabled ? "Yes" : "No") + "\nUse /welcome preview to check the message.")] });
       } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Welcome setup failed.")] }); }
