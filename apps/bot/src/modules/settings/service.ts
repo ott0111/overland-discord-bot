@@ -16,7 +16,7 @@ const DEFAULT_WELCOME: WelcomeSettings = {
   message: "We're glad you're here. Read the rules and complete verification to get started.",
 };
 export function normalizeLinkKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 32);
+  return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
 }
 export function validateLinkUrl(value: string): string {
   let parsed: URL;
