@@ -219,31 +219,34 @@ export async function rejectClaim(staffDiscordId: string, claimId: string) {
       data: { status: "REJECTED", reviewedBy: staffDiscordId },
     });
     if (transition.count !== 1) throw new Error("Claim status changed. Refresh and try again.");
-    const balance = await tx.pointBalance.findUnique({ where: { memberId: claim.memberId } });
-    const after = (balance?.overcredits ?? 0) + claim.costOvercredits;
-    if (balance) {
-      await tx.pointBalance.update({ where: { memberId: claim.memberId }, data: { overcredits: after } });
-    } else {
-      await tx.pointBalance.create({ data: { memberId: claim.memberId, overcredits: claim.costOvercredits } });
-    }
+    await tx.pointBalance.upsert({
+      where: { memberId: claim.memberId },
+      update: {},
+      create: { memberId: claim.memberId },
+    });
+    const refunded = await tx.pointBalance.update({
+      where: { memberId: claim.memberId },
+      data: { overcredits: { increment: claim.costOvercredits } },
+    });
     await tx.pointTransaction.create({
       data: {
         memberId: claim.memberId,
         currency: "OVERCREDITS",
         category: "reward",
         amount: claim.costOvercredits,
-        balanceAfter: after,
+        balanceAfter: refunded.overcredits,
         source: "REWARD_CLAIM",
         idempotencyKey: `refund-${claimId}`,
         reason: `Refund for rejected claim ${claimId}`,
         actorId: staffDiscordId,
       },
     });
-    if (claim.status === "PENDING" || claim.status === "APPROVED") {
-      const reward = await tx.reward.findUnique({ where: { id: claim.rewardId } });
-      if (reward && reward.stock !== null) {
-        await tx.reward.update({ where: { id: claim.rewardId }, data: { stock: reward.stock + 1 } });
-      }
+    const reward = await tx.reward.findUnique({ where: { id: claim.rewardId } });
+    if (reward && reward.stock !== null) {
+      await tx.reward.update({
+        where: { id: claim.rewardId },
+        data: { stock: { increment: 1 } },
+      });
     }
     return tx.rewardClaim.findUniqueOrThrow({ where: { id: claimId } });
   });
