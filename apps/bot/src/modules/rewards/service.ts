@@ -1,0 +1,249 @@
+import { prisma, audit } from "../../lib/db.js";
+import { hasPermission } from "../../lib/permissions.js";
+
+export interface ClaimGuard {
+  ok: boolean;
+  reason?: string;
+}
+
+/**
+ * Pure reward-claim guard, unit tested without a database. Mirrors the
+ * checks inside claimReward: inactive reward, then out of stock, then
+ * insufficient Overcredits. A claim is only allowed when all pass.
+ */
+export function canClaimReward(
+  overcredits: number,
+  costOvercredits: number,
+  stock: number | null,
+  active: boolean,
+): ClaimGuard {
+  if (!active) return { ok: false, reason: "Reward is not available" };
+  if (costOvercredits < 0) return { ok: false, reason: "Reward cost must not be negative" };
+  if (stock !== null && stock <= 0) return { ok: false, reason: "Reward is out of stock" };
+  if (overcredits < costOvercredits) return { ok: false, reason: "Insufficient Overcredits" };
+  return { ok: true };
+}
+
+/** Available rewards for the /rewards marketplace, cheapest first. */
+export async function listRewards(activeOnly = true) {
+  return prisma.reward.findMany({
+    where: activeOnly ? { active: true } : {},
+    orderBy: [{ costOvercredits: "asc" }, { name: "asc" }],
+  });
+}
+
+export async function getReward(rewardId: string) {
+  const reward = await prisma.reward.findUnique({ where: { id: rewardId } });
+  if (!reward) throw new Error("Reward not found");
+  return reward;
+}
+
+export interface CreateRewardInput {
+  name: string;
+  description: string;
+  imageUrl?: string | null;
+  costOvercredits: number;
+  stock?: number | null;
+  eligibility?: string | null;
+}
+
+/** Staff only. Creates a reward catalog entry. */
+export async function createReward(staffDiscordId: string, input: CreateRewardInput) {
+  if (!(await hasPermission(staffDiscordId, "rewards.manage"))) {
+    throw new Error("You do not have permission to manage rewards");
+  }
+  if (!input.name.trim()) throw new Error("Reward name is required");
+  if (input.costOvercredits < 0) throw new Error("Reward cost must not be negative");
+  if (input.stock !== undefined && input.stock !== null && input.stock < 0) {
+    throw new Error("Reward stock must not be negative");
+  }
+  const reward = await prisma.reward.create({
+    data: {
+      name: input.name.trim(),
+      description: input.description,
+      imageUrl: input.imageUrl ?? null,
+      costOvercredits: input.costOvercredits,
+      stock: input.stock ?? null,
+      eligibility: input.eligibility ?? null,
+      active: true,
+    },
+  });
+  await audit(staffDiscordId, "rewards.create", "Reward", reward.id, { name: reward.name, cost: reward.costOvercredits });
+  return reward;
+}
+
+export interface UpdateRewardInput {
+  name?: string;
+  description?: string;
+  imageUrl?: string | null;
+  costOvercredits?: number;
+  stock?: number | null;
+  eligibility?: string | null;
+  active?: boolean;
+}
+
+/** Staff only. Edit price, stock, eligibility or availability. */
+export async function updateReward(staffDiscordId: string, rewardId: string, input: UpdateRewardInput) {
+  if (!(await hasPermission(staffDiscordId, "rewards.manage"))) {
+    throw new Error("You do not have permission to manage rewards");
+  }
+  if (input.costOvercredits !== undefined && input.costOvercredits < 0) {
+    throw new Error("Reward cost must not be negative");
+  }
+  const reward = await prisma.reward.update({ where: { id: rewardId }, data: input });
+  await audit(staffDiscordId, "rewards.update", "Reward", rewardId, { ...input });
+  return reward;
+}
+
+/**
+ * Atomic claim: inside one transaction the reward is checked (active,
+ * in stock), any existing pending claim by the same member for the same
+ * reward is returned instead of double spending, the Overcredits debit
+ * is recorded as a PointTransaction (never below zero), stock is
+ * decremented, and the RewardClaim is created as PENDING for staff
+ * review. A concurrent second claim sees the stock/balance change and
+ * fails instead of overspending.
+ */
+export async function claimReward(memberId: string, rewardId: string) {
+  const idempotencyKey = `claim-${memberId}-${rewardId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const result = await prisma.$transaction(async (tx: any) => {
+    const reward = await tx.reward.findUnique({ where: { id: rewardId } });
+    if (!reward) throw new Error("Reward is not available");
+    const pending = await tx.rewardClaim.findFirst({
+      where: { rewardId, memberId, status: "PENDING" },
+    });
+    if (pending) return { duplicate: true, claim: pending, balance: null };
+    const balance = await tx.pointBalance.findUnique({ where: { memberId } });
+    if (!balance) throw new Error("Insufficient Overcredits");
+    const guard = canClaimReward(balance.overcredits, reward.costOvercredits, reward.stock, reward.active);
+    if (!guard.ok) throw new Error(guard.reason ?? "Reward is not available");
+    const updatedBalance = await tx.pointBalance.update({
+      where: { memberId },
+      data: { overcredits: balance.overcredits - reward.costOvercredits },
+    });
+    await tx.pointTransaction.create({
+      data: {
+        memberId,
+        currency: "OVERCREDITS",
+        category: "reward",
+        amount: -reward.costOvercredits,
+        balanceAfter: updatedBalance.overcredits,
+        source: "REWARD_CLAIM",
+        idempotencyKey,
+        reason: `Claimed ${reward.name}`,
+      },
+    });
+    if (reward.stock !== null) await tx.reward.update({ where: { id: rewardId }, data: { stock: reward.stock - 1 } });
+    const claim = await tx.rewardClaim.create({
+      data: { rewardId, memberId, costOvercredits: reward.costOvercredits, idempotencyKey },
+    });
+    return { duplicate: false, claim, balance: updatedBalance };
+  });
+  if (!result.duplicate) {
+    await audit(null, "rewards.claim", "RewardClaim", result.claim.id, { rewardId, memberId });
+  }
+  return result;
+}
+
+async function setClaimStatus(
+  staffDiscordId: string,
+  claimId: string,
+  status: "APPROVED" | "REJECTED" | "FULFILLED" | "CANCELLED",
+  permission: string,
+) {
+  if (!(await hasPermission(staffDiscordId, permission))) {
+    throw new Error("You do not have permission to review reward claims");
+  }
+  const claim = await prisma.rewardClaim.findUnique({ where: { id: claimId } });
+  if (!claim) throw new Error("Claim not found");
+  if (claim.status !== "PENDING" && status !== "CANCELLED") {
+    throw new Error(`Claim was already ${claim.status.toLowerCase()}`);
+  }
+  const updated = await prisma.rewardClaim.update({
+    where: { id: claimId },
+    data: { status: status as never, reviewedBy: staffDiscordId },
+  });
+  await audit(staffDiscordId, `rewards.claim.${status.toLowerCase()}`, "RewardClaim", claimId, {});
+  return updated;
+}
+
+/** Staff only. Approve a pending claim so it can be fulfilled. */
+export async function approveClaim(staffDiscordId: string, claimId: string) {
+  return setClaimStatus(staffDiscordId, claimId, "APPROVED", "rewards.review");
+}
+
+/**
+ * Staff only. Reject a claim and refund the Overcredits atomically:
+ * the refund PointTransaction and the claim status change share one
+ * transaction, keyed `refund-<claimId>` so a retried rejection refunds once.
+ */
+export async function rejectClaim(staffDiscordId: string, claimId: string) {
+  if (!(await hasPermission(staffDiscordId, "rewards.review"))) {
+    throw new Error("You do not have permission to review reward claims");
+  }
+  const claim = await prisma.rewardClaim.findUnique({ where: { id: claimId } });
+  if (!claim) throw new Error("Claim not found");
+  if (claim.status !== "PENDING" && claim.status !== "APPROVED") {
+    throw new Error(`Claim was already ${claim.status.toLowerCase()}`);
+  }
+  const updated = await prisma.$transaction(async (tx: any) => {
+    const balance = await tx.pointBalance.findUnique({ where: { memberId: claim.memberId } });
+    const after = (balance?.overcredits ?? 0) + claim.costOvercredits;
+    if (balance) {
+      await tx.pointBalance.update({ where: { memberId: claim.memberId }, data: { overcredits: after } });
+    } else {
+      await tx.pointBalance.create({ data: { memberId: claim.memberId, overcredits: claim.costOvercredits } });
+    }
+    await tx.pointTransaction.create({
+      data: {
+        memberId: claim.memberId,
+        currency: "OVERCREDITS",
+        category: "reward",
+        amount: claim.costOvercredits,
+        balanceAfter: after,
+        source: "REWARD_CLAIM",
+        idempotencyKey: `refund-${claimId}`,
+        reason: `Refund for rejected claim ${claimId}`,
+        actorId: staffDiscordId,
+      },
+    });
+    if (claim.status === "PENDING" || claim.status === "APPROVED") {
+      const reward = await tx.reward.findUnique({ where: { id: claim.rewardId } });
+      if (reward && reward.stock !== null) {
+        await tx.reward.update({ where: { id: claim.rewardId }, data: { stock: reward.stock + 1 } });
+      }
+    }
+    return tx.rewardClaim.update({
+      where: { id: claimId },
+      data: { status: "REJECTED", reviewedBy: staffDiscordId },
+    });
+  });
+  await audit(staffDiscordId, "rewards.claim.rejected", "RewardClaim", claimId, { refunded: claim.costOvercredits });
+  return updated;
+}
+
+/** Staff only. Mark an approved claim as fulfilled/delivered. */
+export async function fulfillClaim(staffDiscordId: string, claimId: string) {
+  if (!(await hasPermission(staffDiscordId, "rewards.review"))) {
+    throw new Error("You do not have permission to review reward claims");
+  }
+  const claim = await prisma.rewardClaim.findUnique({ where: { id: claimId } });
+  if (!claim) throw new Error("Claim not found");
+  if (claim.status !== "APPROVED") throw new Error(`Only approved claims can be fulfilled (current: ${claim.status})`);
+  const updated = await prisma.rewardClaim.update({
+    where: { id: claimId },
+    data: { status: "FULFILLED", reviewedBy: staffDiscordId },
+  });
+  await audit(staffDiscordId, "rewards.claim.fulfilled", "RewardClaim", claimId, {});
+  return updated;
+}
+
+/** Claims for one member, or all claims for staff review. */
+export async function listClaims(memberId?: string, status?: string, take = 50) {
+  return prisma.rewardClaim.findMany({
+    where: { ...(memberId ? { memberId } : {}), ...(status ? { status: status as never } : {}) },
+    orderBy: { createdAt: "desc" },
+    take,
+    include: { reward: true, member: { include: { user: true } } },
+  });
+}

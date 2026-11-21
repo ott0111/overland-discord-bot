@@ -1,0 +1,26 @@
+{
+  "name": "overland-core",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Overland Core: Discord community operating system for Overland Finance",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:bot": "npm --workspace apps/bot run dev",
+    "dev:dashboard": "npm --workspace apps/dashboard run dev",
+    "build": "npm --workspace @overland/shared run build && npm --workspace apps/bot run build",
+    "test": "npm --workspace apps/bot run test",
+    "prisma:validate": "npx prisma validate --schema prisma/schema.prisma",
+    "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
+    "prisma:migrate": "npx prisma migrate deploy --schema prisma/schema.prisma",
+    "db:seed": "npx tsx prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "prisma": "^5.22.0"
+  }
+}
