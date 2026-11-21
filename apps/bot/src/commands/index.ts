@@ -2,7 +2,7 @@ import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Chan
 import { prisma, audit } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
-import { getInfoContent, getConfig, clearConfigCache } from "../lib/config.js";
+import { getInfoContent, getConfig, clearConfigCache, setInfoContent } from "../lib/config.js";
 import { awardDailyCheckin } from "../modules/economy/service.js";
 import { hasPermission } from "../lib/permissions.js";
 import { listActive, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
@@ -190,14 +190,39 @@ function welcomeCmd(): Command {
   };
 }
 function setupCmd(): Command {
+  const infoPages = ["about", "links", "team", "roadmap", "updates", "faq", "opportunities", "socials"];
   return {
-    data: new SlashCommandBuilder().setName("setup").setDescription("View setup instructions for Overland Core")
-      .addStringOption((o) => o.setName("feature").setDescription("Feature to configure").setRequired(true).addChoices(
+    data: new SlashCommandBuilder().setName("setup").setDescription("Configure Overland community information and systems")
+      .addStringOption((o) => o.setName("feature").setDescription("Feature or information page").setRequired(true).addChoices(
         { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "links" },
         { name: "Tickets", value: "tickets" }, { name: "Verification", value: "verification" },
-        { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" })),
+        { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" },
+        { name: "About page", value: "about" }, { name: "Public team page", value: "team" },
+        { name: "Roadmap page", value: "roadmap" }, { name: "Updates page", value: "updates" },
+        { name: "FAQ page", value: "faq" }, { name: "Opportunities page", value: "opportunities" },
+        { name: "Socials information", value: "socials" }))
+      .addStringOption((o) => o.setName("content").setDescription("New public page content (leave empty to view)").setMaxLength(3500)),
     execute: async (i) => {
       const feature = i.options.getString("feature", true);
+      const content = i.options.getString("content");
+      if (infoPages.includes(feature)) {
+        if (content !== null) {
+          await i.deferReply({ ephemeral: true });
+          try {
+            await setInfoContent(i.user.id, feature, content);
+            await i.editReply({ embeds: [overlandEmbed("Information page updated", "The /" + feature + " page now uses the new content.")] });
+          } catch (err) {
+            await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Information update failed.")] });
+          }
+          return;
+        }
+        await replyInfo(i, feature, "Setup: " + feature);
+        return;
+      }
+      if (content !== null) {
+        await i.reply({ ephemeral: true, embeds: [errorEmbed("The content option is only available for public information pages.")] });
+        return;
+      }
       const instructions: Record<string, string> = {
         welcome: "Run /welcome setup and choose a channel, title and message. Use {user} and {server} placeholders. Preview with /welcome preview.",
         links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
