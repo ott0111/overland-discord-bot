@@ -14,7 +14,7 @@ import { announceManual, getXConfig } from "../modules/x-integration/service.js"
 import { getReferralStats } from "../modules/referrals/service.js";
 import { staffVerify, startVerification, completeVerification } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
-import { assignRole } from "../modules/roles/service.js";
+import { assignRole, removeRole, listSelfAssignable, getRoleHistory, staffAward, setXFollowVerified, grantComrade } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
 import { getModerationConfig, updateModerationConfig, lockdownOn, lockdownOff, isLockdownActive, kickMember, banMember, unbanMember, getModerationHistory } from "../modules/moderation/service.js";
 
@@ -610,16 +610,74 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Timeout failed.")] });
     }
   } },
-  { data: new SlashCommandBuilder().setName("grant-role").setDescription("Staff: grant a community role to a member").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addStringOption((o) => o.setName("role").setDescription("Role name, for example Pioneer").setRequired(true)).addStringOption((o) => o.setName("reason").setDescription("Reason")), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("grant-role").setDescription("Staff: award Pioneer or Luminary recognition").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addStringOption((o) => o.setName("role").setDescription("Recognition role").setRequired(true).addChoices({ name: "Pioneer", value: "Pioneer" }, { name: "Luminary", value: "Luminary" })).addStringOption((o) => o.setName("reason").setDescription("Reason")), execute: async (i) => {
     if (!(await requirePerm(i, "roles.assign"))) return;
     await i.deferReply({ ephemeral: true });
     try {
       const target = i.options.getUser("member", true);
       const m = await ensureMember(target.id, target.username);
-      await assignRole(m.id, i.options.getString("role", true), i.user.id, i.options.getString("reason") ?? undefined, i.guild ?? undefined);
-      await i.editReply({ embeds: [overlandEmbed("Role granted", `${i.options.getString("role", true)} granted to ${target.username}.`)] });
+      const roleName = i.options.getString("role", true);
+      await staffAward(m.id, roleName, i.user.id, i.options.getString("reason") ?? undefined, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed("Recognition awarded", roleName + " granted to " + target.username + ".")] });
     } catch (err) {
-      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Role grant failed.")] });
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Role award failed.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("interests").setDescription("View self-assignable community interest roles"), execute: async (i) => {
+    const roles = await listSelfAssignable();
+    const text = roles.map((role) => "• **" + role.name + "**" + (role.description ? " - " + role.description : "")).join("\n");
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Community interests", text ? text + "\n\nUse /interest to add or remove an interest role." : "No interest roles are currently available.")] });
+  } },
+  { data: new SlashCommandBuilder().setName("interest").setDescription("Add or remove one of your interest roles").addStringOption((o) => o.setName("role").setDescription("Exact interest role name").setRequired(true)), execute: async (i) => {
+    await i.deferReply({ ephemeral: true });
+    try {
+      const roleName = i.options.getString("role", true);
+      const role = await prisma.role.findUnique({ where: { name: roleName } });
+      if (!role || !role.isSelfAssignable || role.isInternal) {
+        await i.editReply({ embeds: [errorEmbed("That role is not available for self-assignment. Use /interests to see available roles.")] });
+        return;
+      }
+      const member = await ensureMember(i.user.id, i.user.username);
+      const existing = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId: member.id, roleId: role.id } } });
+      if (existing) {
+        await removeRole(member.id, role.name, i.user.id, "Member removed their interest role", i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Interest role removed", "You no longer have the " + role.name + " role.")] });
+      } else {
+        await assignRole(member.id, role.name, i.user.id, "Member self-assigned interest role", i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Interest role added", "You now have the " + role.name + " role.")] });
+      }
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not update your interest role.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("role-history").setDescription("Staff: view a member's role history").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "audit.view"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const history = await getRoleHistory(member.id, 15);
+      const lines = history.map((entry) => {
+        const when = entry.createdAt.toISOString().slice(0, 16).replace("T", " ");
+        return when + " • " + entry.action + " • " + entry.role.name + (entry.reason ? " • " + entry.reason : "");
+      });
+      await i.editReply({ embeds: [overlandEmbed("Role history: " + target.username, lines.join("\n").slice(0, 3900) || "No role history found.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not load role history.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("comrade-verify").setDescription("Staff: verify an X follow and grant or revoke Comrade").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addBooleanOption((o) => o.setName("following").setDescription("Whether the official X follow is verified").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "roles.assign"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const following = i.options.getBoolean("following", true);
+      await setXFollowVerified(member.id, i.user.id, following, i.guild ?? undefined);
+      if (following) await grantComrade(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(following ? "Comrade verification complete" : "Comrade eligibility removed", following ? target.username + " has been verified as following Overland on X and granted Comrade." : target.username + " no longer meets the Comrade X-follow requirement.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Comrade verification failed.")] });
     }
   } },
   { data: new SlashCommandBuilder().setName("ticket").setDescription("Open a support ticket").addStringOption((o) => o.setName("category").setDescription("Category").setRequired(true).addChoices(...["General Inquiry", "Partnerships", "Business Development", "Opportunities", "Technical Support", "Other"].map((c) => ({ name: c, value: c })))).addStringOption((o) => o.setName("topic").setDescription("What do you need help with?").setRequired(true)), execute: async (i) => {
