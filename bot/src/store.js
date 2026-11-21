@@ -13,7 +13,7 @@ const defaults = () => ({
     verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
     security: { antiSpamEnabled: false, antiLinkEnabled: false, massMentionEnabled: true, spamThreshold: 6, spamWindowMs: 8000, timeoutMinutes: 5, maxMentions: 5, allowedDomains: [] },
     voice: { lobbyChannelId: null, categoryId: null, enabled: false, autoVoiceRooms: {}, voiceSessions: {}, voiceStats: {} },
-    roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
+    roleIds: {}, roleMenus: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
     dailyLimits: { OVERPOINTS: 100, OVERCREDITS: 250 }, pointValues: {
       daily: 5, participation: 2, helpful: 5, event: 15, weekly: 20, streakBonus: 10, verifiedReferral: 10, sevenDayActive: 10, comradeBonus: 5,
       social_post: 15, infographic: 25, educational_thread: 30, article: 30,
@@ -56,6 +56,7 @@ function normalizeGuild(guild) {
   guild.settings.verification = { ...base.settings.verification, ...(guild.settings.verification || {}) };
   guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };
   guild.settings.voice = { ...base.settings.voice, ...(guild.settings.voice || {}) };
+  guild.settings.roleMenus ||= {};
   guild.recentJoins ||= [];
   guild.settings.dailyLimits = { ...base.settings.dailyLimits, ...(guild.settings.dailyLimits || {}) };
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
