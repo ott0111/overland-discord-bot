@@ -1,4 +1,4 @@
-const API_BASE = (process.env.OVERLAND_API_URL || "").replace(/\\/$/, "");
+const API_BASE = (process.env.OVERLAND_API_URL || "").replace(/\/$/, "");
 const API_SECRET = process.env.OVERLAND_API_SECRET || "";
 
 export async function coreApiGet<T>(path: string): Promise<T> {
@@ -11,9 +11,7 @@ export async function coreApiGet<T>(path: string): Promise<T> {
     cache: "no-store",
     signal: AbortSignal.timeout(10000),
   });
-  if (!response.ok) {
-    throw new Error("Overland bot API returned " + response.status);
-  }
+  if (!response.ok) throw new Error("Overland bot API returned " + response.status);
   return response.json() as Promise<T>;
 }
 
