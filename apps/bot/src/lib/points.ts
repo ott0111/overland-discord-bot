@@ -33,7 +33,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
     where: { memberId: input.memberId },
   })) as Balance | null;
   if (!balance) {
-    balance = (await (tx.pointBalance.create as (a: unknown) => Promise<Balance>)({
+    balance = (await (tx.pointBalance.create as unknown as (a: unknown) => Promise<Balance>)({
       data: { memberId: input.memberId },
     })) as Balance;
   }
@@ -43,7 +43,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
   const catField = CATEGORY_FIELD[input.category];
   const data: Record<string, number> = { [field]: after };
   if (catField && input.amount > 0) data[catField] = (balance[catField] as number) + input.amount;
-  const updated = (await (tx.pointBalance.update as (a: unknown) => Promise<Balance>)({
+  const updated = (await (tx.pointBalance.update as unknown as (a: unknown) => Promise<Balance>)({
     where: { memberId: input.memberId },
     data,
   })) as Balance;
