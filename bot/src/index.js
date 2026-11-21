@@ -77,7 +77,7 @@ async function announceXPosts(){
  }
 }
 async function handleVerifyButton(i){
- const m=getMember(i.guildId,i.user);if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
+ const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
  const a=Math.floor(Math.random()*8)+2,b=Math.floor(Math.random()*8)+2;
  m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
@@ -115,7 +115,7 @@ async function handleInteraction(i){
 client.on(Events.InteractionCreate,handleInteraction);
 client.on(Events.GuildMemberAdd,async member=>{
  try{
-  const g=getGuild(member.guild.id);g.stats.joins++;
+  const g=getGuild(member.guild.id);g.stats.joins++;const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
   const current=await member.guild.invites.fetch().catch(()=>null),previous=inviteCache.get(member.guild.id)||new Map();let used=null;
   if(current){for(const inv of current.values()){if((inv.uses||0)>(previous.get(inv.code)||0)){used=inv;break;}}inviteCache.set(member.guild.id,new Map(current.map(x=>[x.code,x.uses||0])));}
   if(used)await recordJoin(member.guild.id,member,used.code);

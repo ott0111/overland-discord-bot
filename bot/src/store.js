@@ -10,7 +10,7 @@ const defaults = () => ({
   settings: {
     welcomeChannelId: null, autoRoleId: null, welcomeMessage: "Welcome {user} to {server}!",
     welcomeEnabled: false, welcomeDm: false, modLogChannelId: null,
-    verificationChannelId: null, verificationEnabled: false,
+    verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
     roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
     dailyLimits: { OVERPOINTS: 100, OVERCREDITS: 250 }, pointValues: {
       daily: 10, participation: 2, helpful: 5, event: 15, weekly: 20,
@@ -20,7 +20,7 @@ const defaults = () => ({
       community_initiative: 40, significant_contribution: 50
     }
   },
-  members: {}, transactions: [], roleHistory: [], team: [], campaigns: [],
+  members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
   achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [],
   stats: { messages: 0, joins: 0, leaves: 0 }
@@ -50,6 +50,8 @@ function normalizeGuild(guild) {
     if (guild[key] === undefined) guild[key] = value;
   }
   guild.settings = { ...base.settings, ...(guild.settings || {}) };
+  guild.settings.verification = { ...base.settings.verification, ...(guild.settings.verification || {}) };
+  guild.recentJoins ||= [];
   guild.settings.dailyLimits = { ...base.settings.dailyLimits, ...(guild.settings.dailyLimits || {}) };
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
   guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
