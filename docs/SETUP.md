@@ -41,7 +41,7 @@ takes on your machine.
 5. Go to OAuth2, URL Generator. Select scopes `bot` and
    `applications.commands`. Select at least these bot permissions:
    Manage Roles, Manage Channels, Kick Members, Ban Members, Moderate
-   Members (timeout), Manage Messages, Read Message History, Send Messages,
+   Members (timeout), Manage Messages, Read Message History, View Audit Log, Send Messages,
    Embed Links, Attach Files, Create Invite, View Channels. The bot only
    uses the permissions its features need, and staff actions are gated by
    the internal permission system, not by Discord roles.
