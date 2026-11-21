@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
+import { SlashCommandBuilder, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
 import { command, reply, requirePerm, embed } from "../helpers.js";
 import { getGuild, saveStore } from "../../store.js";
 
@@ -30,9 +30,7 @@ export default command(
       .setThumbnail(process.env.OVERLAND_ICON_URL || i.client.user.displayAvatarURL());
     await panelChannel.send({
       embeds: [panel],
-      components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId("overland:ticket:create").setLabel("Open support ticket").setStyle(ButtonStyle.Success)
-      )]
+      components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId("overland:ticket:category").setPlaceholder("Select a support category").addOptions(\n        { label: "General Support", value: "support", description: "Questions and community assistance" },\n        { label: "Reports", value: "reports", description: "Report an issue or concern" },\n        { label: "Partnerships", value: "partnerships", description: "Business and collaboration inquiries" },\n        { label: "Applications", value: "applications", description: "Applications and opportunities" }\n      ))]
     });
     await reply(i, "Support panel published", "The Overland support panel is live in " + panelChannel + ". Ticket channels will be private and can be archived when closed.");
   }
