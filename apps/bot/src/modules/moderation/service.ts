@@ -32,7 +32,7 @@ export interface ModerationConfig {
 }
 
 export async function getModerationConfig(): Promise<ModerationConfig> {
-  return getConfig<ModerationConfig>("moderation", {
+  const defaults: ModerationConfig = {
     profanityFilter: true,
     profanityWords: [],
     inviteFilter: true,
@@ -40,7 +40,9 @@ export async function getModerationConfig(): Promise<ModerationConfig> {
     spamWindowSeconds: 10,
     spamMaxMessages: 5,
     suspiciousLinkAction: "delete",
-  });
+  };
+  const stored = await getConfig<Partial<ModerationConfig>>("moderation", {});
+  return { ...defaults, ...stored };
 }
 
 export interface MessageFlags {
@@ -161,7 +163,8 @@ export async function updateModerationConfig(actorId: string, patch: Partial<Pic
   "profanityFilter" | "inviteFilter" | "maxMentions" | "spamWindowSeconds" | "spamMaxMessages" | "suspiciousLinkAction">>) {
   await requireModeration(actorId);
   const current = await getModerationConfig();
-  const next = { ...current, ...patch };
+  const cleanPatch = Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== undefined)) as Partial<Pick<ModerationConfig, "profanityFilter" | "inviteFilter" | "maxMentions" | "spamWindowSeconds" | "spamMaxMessages" | "suspiciousLinkAction">>;
+  const next = { ...current, ...cleanPatch };
   if (!Number.isInteger(next.maxMentions) || next.maxMentions < 1 || next.maxMentions > 50) throw new Error("Mention limit must be between 1 and 50.");
   if (!Number.isInteger(next.spamWindowSeconds) || next.spamWindowSeconds < 2 || next.spamWindowSeconds > 60) throw new Error("Spam window must be between 2 and 60 seconds.");
   if (!Number.isInteger(next.spamMaxMessages) || next.spamMaxMessages < 3 || next.spamMaxMessages > 20) throw new Error("Spam threshold must be between 3 and 20 messages.");
@@ -171,7 +174,7 @@ export async function updateModerationConfig(actorId: string, patch: Partial<Pic
     create: { key: "moderation", value: next as never, updatedBy: actorId },
   });
   clearConfigCache("moderation");
-  await audit(actorId, "moderation.config_update", "BotConfiguration", "moderation", patch as Record<string, unknown>);
+  await audit(actorId, "moderation.config_update", "BotConfiguration", "moderation", cleanPatch as Record<string, unknown>);
   return next;
 }
 
@@ -192,7 +195,7 @@ export async function lockdownOn(actorId: string, guild?: Guild) {
     const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
     for (const [, channel] of channels) {
       if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) continue;
-      const overwrite = channel.permissionOverwrites.cache.get(everyone.id);
+      const overwrite = (channel as import("discord.js").GuildChannel).permissionOverwrites.cache.get(everyone.id);
       snapshot[channel.id] = overwrite?.allow.has("SendMessages") ? "allow" : overwrite?.deny.has("SendMessages") ? "deny" : "inherit";
     }
   }
@@ -209,7 +212,7 @@ export async function lockdownOn(actorId: string, guild?: Guild) {
     for (const [channelId] of Object.entries(snapshot)) {
       const channel = channels.get(channelId);
       if (channel && channel.isTextBased() && "permissionOverwrites" in channel) {
-        await channel.permissionOverwrites.edit(everyone, { SendMessages: false }).catch((err) =>
+        await (channel as import("discord.js").GuildChannel).permissionOverwrites.edit(everyone, { SendMessages: false }).catch((err) =>
           logger.warn({ err, channelId }, "Could not apply lockdown to channel"));
       }
     }
