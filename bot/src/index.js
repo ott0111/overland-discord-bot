@@ -144,6 +144,11 @@ client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
 client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(g.stats.messages%25===0)await saveStore();});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
+ ready.user.setPresence({
+  activities:[{name:"Overland Finance",type:0,state:"The Overland ecosystem | overland-finance.vercel.app/om"}],
+  status:"online"
+ });
+ console.log("[Presence] Set activity to Overland Finance.");
  try{
   await ready.application.fetch();
   const appId=ready.application.id;
