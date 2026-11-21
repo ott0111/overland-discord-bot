@@ -14,7 +14,7 @@ import { announceManual, getXConfig } from "../modules/x-integration/service.js"
 import { getReferralStats } from "../modules/referrals/service.js";
 import { staffVerify, startVerification, completeVerification } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
-import { assignRole, removeRole, listSelfAssignable, getRoleHistory, staffAward, setXFollowVerified, grantComrade } from "../modules/roles/service.js";
+import { assignRole, removeRole, listSelfAssignable, getRoleHistory, staffAward, setXFollowVerified, grantComrade, checkProgression } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
 import { getModerationConfig, updateModerationConfig, lockdownOn, lockdownOff, isLockdownActive, kickMember, banMember, unbanMember, getModerationHistory } from "../modules/moderation/service.js";
 
@@ -87,10 +87,11 @@ function dailyCmd(): Command {
       const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
       const prev = await prisma.dailyCheckin.findUnique({ where: { memberId_date: { memberId: m.id, date: yesterday } } });
       const streak = computeDailyStreak(prev?.date ?? null, today, prev?.streak ?? 0);
+      const award = await awardDailyCheckin(m.id, streak);
       await prisma.dailyCheckin.create({ data: { memberId: m.id, date: today, streak } });
-      await awardDailyCheckin(m.id, streak);
       const newlyGranted = await checkAndGrant(m.id).catch(() => [] as string[]);
-      await i.editReply({ embeds: [overlandEmbed("Daily check-in complete", `Streak: ${streak} day${streak === 1 ? "" : "s"}. You earned 5 Overpoints${streak % 7 === 0 ? " plus a 10 Overcredit streak bonus" : ""}.${newlyGranted.length ? ` Achievement unlocked: ${newlyGranted.join(", ")}.` : ""}`)] });
+      await checkProgression(m.id, i.user.id, i.guild ?? undefined).catch(() => []);
+      await i.editReply({ embeds: [overlandEmbed("Daily check-in complete", `Streak: ${streak} day${streak === 1 ? "" : "s"}. You earned ${award.amount} Overpoints${award.streakBonus > 0 ? " plus a " + award.streakBonus + " Overcredit streak bonus" : ""}.${newlyGranted.length ? ` Achievement unlocked: ${newlyGranted.join(", ")}.` : ""}`)] });
     },
   };
 }
