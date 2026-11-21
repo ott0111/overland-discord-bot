@@ -59,6 +59,16 @@ export function registerEvents(client: Client): void {
           (invite.uses ?? 0) > (inviteUses.get(inviteCacheKey(member.guild.id, invite.code)) ?? 0));
         for (const invite of currentInvites.values()) inviteUses.set(inviteCacheKey(member.guild.id, invite.code), invite.uses ?? 0);
         if (used?.inviter && used.inviter.id !== member.id) {
+          const inviterUser = await prisma.user.upsert({
+            where: { discordId: used.inviter.id },
+            update: { username: used.inviter.username },
+            create: { discordId: used.inviter.id, username: used.inviter.username },
+          });
+          await prisma.discordMember.upsert({
+            where: { userId: inviterUser.id },
+            update: {},
+            create: { userId: inviterUser.id, guildId: member.guild.id },
+          });
           await recordJoin(used.inviter.id, member.id, used.code).catch((err) =>
             logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
         }
