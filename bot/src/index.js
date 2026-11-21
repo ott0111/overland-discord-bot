@@ -28,6 +28,7 @@ function ownerBootstrap(){
 }
 async function syncCommands(appId){
  const body=[...commands.values()].map(c=>c.data.toJSON());
+ if(body.length>100)throw new Error("Discord application command limit exceeded: "+body.length+"/100.");
  const rest=new REST({version:"10"}).setToken(token);
  let route;
  if(guildId){
