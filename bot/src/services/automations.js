@@ -12,21 +12,14 @@ export function registerAutomations(client){
   const windows=new Map();
   client.on(Events.GuildMemberAdd,async member=>{
     try{
-      const g=getGuild(member.guild.id),v=g.settings.verification,now=Date.now();
-      g.stats.joins++;g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);
-      const tracked=getMember(member.guild.id,member.user);
-      if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
-      if(g.settings.welcomeEnabled&&g.settings.welcomeChannelId){
-        const ch=await member.guild.channels.fetch(g.settings.welcomeChannelId).catch(()=>null);
-        if(ch?.isTextBased())await ch.send({embeds:[embed("WELCOME TO OVERLAND",g.settings.welcomeMessage.replaceAll("{user}",member.toString()).replaceAll("{server}",member.guild.name)).setThumbnail(member.user.displayAvatarURL({size:256})).addFields({name:"MEMBER",value:member.user.username,inline:true},{name:"COMMUNITY SIZE",value:String(member.guild.memberCount),inline:true})]});
-      }
+      const g=getGuild(member.guild.id);
       await log(member.guild,"MEMBER JOINED",member.user.tag+" ("+member.id+") joined. Account created <t:"+Math.floor(member.user.createdTimestamp/1000)+":R>.");
       await saveStore();
     }catch(e){console.error("[MemberJoin]",e);}
   });
   client.on(Events.GuildMemberRemove,async member=>{
     try{
-      const g=getGuild(member.guild.id);g.stats.leaves++;
+      const g=getGuild(member.guild.id);
       if(g.settings.leaveChannelId){const ch=await member.guild.channels.fetch(g.settings.leaveChannelId).catch(()=>null);if(ch?.isTextBased())await ch.send({embeds:[embed("MEMBER LEFT",g.settings.leaveMessage.replaceAll("{user}",member.user.tag).replaceAll("{server}",member.guild.name))]});}
       await log(member.guild,"MEMBER LEFT",member.user.tag+" ("+member.id+") left the server.");await saveStore();
     }catch(e){console.error("[MemberLeave]",e);}
@@ -42,7 +35,6 @@ export function registerAutomations(client){
   client.on(Events.MessageCreate,async m=>{
     if(!m.guild||m.author.bot)return;
     const g=getGuild(m.guild.id),cfg=g.settings.security,now=Date.now(),key=m.guild.id+":"+m.author.id;
-    g.stats.messages++;getMember(m.guild.id,m.author);
     const recent=(windows.get(key)||[]).filter(t=>now-t<cfg.spamWindowMs);recent.push(now);windows.set(key,recent);
     const link=/https?:\/\/|discord\.gg\/|www\./i.test(m.content),allowed=cfg.allowedDomains.some(d=>m.content.toLowerCase().includes(d.toLowerCase()));
     const mentions=m.mentions.users.size+m.mentions.roles.size;
@@ -57,7 +49,7 @@ export function registerAutomations(client){
       await log(m.guild,"AUTOMOD ACTION","**Member:** "+m.author.tag+"\n**Reason:** "+reason+"\n**Action:** Message removal and timeout attempted.",BRAND.warning);
     }
     if(windows.size>5000)for(const [k,v] of windows)if(!v.length||now-v[v.length-1]>60000)windows.delete(k);
-    if(g.stats.messages%25===0)await saveStore();
+
   });
   client.on(Events.MessageDelete,async m=>{
     if(!m.guild||m.author?.bot)return;
