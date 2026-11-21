@@ -9,7 +9,9 @@ import { getXConfig } from "../modules/x-integration/service.js";
 export function registerJobs(client?: Client): void {
   registerJob("referral-retention", async (payload) => {
     const referral = await prisma.referral.findUnique({ where: { id: String(payload.referralId) }, include: { referred: true } });
-    const guild = referral && client ? await client.guilds.fetch(referral.referred.guildId).catch(() => undefined) : undefined;
+    if (!referral) return;
+    if (!client) throw new Error("Discord client is unavailable for referral retention check");
+    const guild = await client.guilds.fetch(referral.referred.guildId);
     await checkRetention7d(String(payload.referralId), guild);
   });
 
