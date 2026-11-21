@@ -39,18 +39,13 @@ export default function Sidebar() {
   return (
     <>
       <button className="mobile-menu" onClick={() => setOpen(!open)} aria-label="Toggle navigation">
-        <span />
-        <span />
-        <span />
+        <span /><span /><span />
       </button>
       {open ? <button className="sidebar-scrim" aria-label="Close navigation" onClick={() => setOpen(false)} /> : null}
       <aside className={"sidebar" + (open ? " sidebar-open" : "")}>
         <Link href="/" className="brand-lockup" onClick={() => setOpen(false)}>
           <span className="brand-mark">O</span>
-          <span className="brand-copy">
-            <strong>OVERLAND</strong>
-            <small>CORE CONSOLE</small>
-          </span>
+          <span className="brand-copy"><strong>OVERLAND</strong><small>CORE CONSOLE</small></span>
         </Link>
         <div className="workspace-switcher">
           <span className="workspace-avatar">OF</span>
@@ -65,8 +60,7 @@ export default function Sidebar() {
                 const active = item.href === "/" ? pathname === "/" : pathname === item.href || pathname.startsWith(item.href + "/");
                 return (
                   <Link key={item.href} href={item.href} onClick={() => setOpen(false)} className={"navlink" + (active ? " active" : "")}>
-                    <span className="nav-icon">{item.icon}</span>
-                    <span>{item.label}</span>
+                    <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
                     {active ? <span className="nav-active-dot" /> : null}
                   </Link>
                 );
@@ -76,7 +70,6 @@ export default function Sidebar() {
         </div>
         <div className="sidebar-bottom">
           <div className="system-status"><span className="status-dot" /><span><strong>Console online</strong><small>Workspace services</small></span></div>
-          <Link href="/api/auth/login" className="navlink auth-link"><span className="nav-icon">ID</span><span>Sign in with Discord</span></Link>
           <Link href="/api/auth/logout" className="navlink auth-link"><span className="nav-icon">↗</span><span>Sign out</span></Link>
           <div className="sidebar-version">OVERLAND CORE <span>ADMIN</span></div>
         </div>
