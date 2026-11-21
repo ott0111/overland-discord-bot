@@ -171,8 +171,7 @@ model Role {
   isSelfAssignable Boolean @default(false)
   requiresRoleId String?
   requiresRole   Role?    @relation("RoleRequirement", fields: [requiresRoleId], references: [id])
-  dependents     Role[]
-    @relation("RoleRequirement")
+  dependents       Role[]   @relation("RoleRequirement")
   minOverpoints  Int?
   sortOrder      Int      @default(0)
   createdAt      DateTime @default(now())
