@@ -109,7 +109,7 @@ export function registerEvents(client: Client): void {
         await audit(null, "moderation.suspicious_link", "Message", msg.id, { authorId: msg.author.id, action: config.suspiciousLinkAction });
         if (config.suspiciousLinkAction === "delete") {
           await msg.delete().catch(() => undefined);
-          await msg.channel.send({ embeds: [overlandEmbed("Link removed", "A suspicious link was removed automatically. Staff have been notified.")] }).catch(() => undefined);
+          await (msg.channel as import("discord.js").TextChannel).send({ embeds: [overlandEmbed("Link removed", "A suspicious link was removed automatically. Staff have been notified.")] }).catch(() => undefined);
           return;
         }
       }
