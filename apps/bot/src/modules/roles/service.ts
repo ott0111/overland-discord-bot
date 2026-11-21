@@ -73,22 +73,28 @@ export async function revokeRole(memberId: string, roleName: string, actorId: st
   });
   if (held.length === 0) return [];
 
-  await prisma.$transaction(async (tx) => {
-    await tx.memberRole.deleteMany({
-      where: { memberId, roleId: { in: held.map((entry) => entry.roleId) } },
-    });
-    await tx.roleHistory.createMany({
-      data: held.map((entry) => ({
-        memberId,
-        roleId: entry.roleId,
-        action: "REVOKE",
-        actorId,
-        reason: reason ?? (entry.role.name === roleName ? "Role removed" : "Prerequisite " + roleName + " removed"),
-      })),
-    });
+  const removedNames = await prisma.$transaction(async (tx) => {
+    const removed: string[] = [];
+    for (const entry of held) {
+      const deleted = await tx.memberRole.deleteMany({
+        where: { memberId, roleId: entry.roleId },
+      });
+      if (deleted.count !== 1) continue;
+      await tx.roleHistory.create({
+        data: {
+          memberId,
+          roleId: entry.roleId,
+          action: "REVOKE",
+          actorId,
+          reason: reason ?? (entry.role.name === roleName ? "Role removed" : "Prerequisite " + roleName + " removed"),
+        },
+      });
+      removed.push(entry.role.name);
+    }
+    return removed;
   });
 
-  return held.map((entry) => entry.role.name);
+  return removedNames;
 }
 
 async function discordIdForMember(memberId: string): Promise<string | null> {
