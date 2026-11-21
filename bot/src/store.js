@@ -54,7 +54,11 @@ function normalizeGuild(guild) {
   guild.recentJoins ||= [];
   guild.settings.dailyLimits = { ...base.settings.dailyLimits, ...(guild.settings.dailyLimits || {}) };
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
-  guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };\n  guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };\n  guild.settings.selfRoles ||= [];\n  for (const key of ["vouches","reports","appeals","suggestions","staffNotes","tempRoles","tempVoiceChannels","reminders"]) guild[key] ||= [];\n  guild.lockdown ||= { active: false, channels: [] };
+  guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
+  guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };
+  guild.settings.selfRoles ||= [];
+  for (const key of ["vouches","reports","appeals","suggestions","staffNotes","tempRoles","tempVoiceChannels","reminders"]) guild[key] ||= [];
+  guild.lockdown ||= { active: false, channels: [] };
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
   guild.members ||= {};
   return guild;

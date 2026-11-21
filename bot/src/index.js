@@ -6,7 +6,8 @@ import {embed} from "./commands/helpers.js";
 import {checkProgression,syncDiscordRole} from "./services/roles.js";
 import {recordJoin,processReferralMilestones} from "./services/referrals.js";
 import {award} from "./services/economy.js";
-import {startCoreApi} from "./api.js";\nimport {handleMessage as runMessageAutomation, handleVoiceState, logEvent, runMaintenance} from "./services/automation.js";
+import {startCoreApi} from "./api.js";
+import {handleMessage as runMessageAutomation, handleVoiceState, logEvent, runMaintenance} from "./services/automation.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -138,6 +139,9 @@ async function handleInteraction(i){
    await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
    if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
    await saveStore();
+   const feedbackRow=new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n=>new ButtonBuilder().setCustomId("overland:ticket:rating:"+n+":"+i.channelId+":"+i.guildId).setLabel(n+" / 5").setStyle(n>=4?ButtonStyle.Success:ButtonStyle.Secondary)));
+   const ticketOwner=await i.client.users.fetch(owner).catch(()=>null);
+   if(ticketOwner)await ticketOwner.send({embeds:[embed("HOW WAS YOUR SUPPORT EXPERIENCE?","Your Overland support ticket has been closed. Please rate your experience from 1 to 5.")],components:[feedbackRow]}).catch(()=>{});
    await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
    await i.channel.send({embeds:[embed("TICKET CLOSED","This ticket was closed by "+i.user+". Staff can still review its history.")] }).catch(()=>{});
    return;
@@ -209,7 +213,8 @@ client.once(Events.ClientReady,async ready=>{
 });
 const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
-const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);\nconst maintenanceTimer=setInterval(()=>runMaintenance(client).catch(e=>console.error("[Maintenance]",e)),60*1000);
+const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);
+const maintenanceTimer=setInterval(()=>runMaintenance(client).catch(e=>console.error("[Maintenance]",e)),60*1000);
 async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);clearInterval(maintenanceTimer);await saveStore();client.destroy();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
