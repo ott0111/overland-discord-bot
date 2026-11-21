@@ -324,11 +324,11 @@ function purgeCmd(): Command {
     execute: async (i) => {
       if (!(await requirePerm(i, "moderation.action"))) return;
       const channel = i.channel;
-      if (!channel || !("bulkDelete" in channel)) { await i.reply({ ephemeral: true, embeds: [errorEmbed("This command only works in a text channel.")] }); return; }
+      if (!channel || !channel.isTextBased() || !("bulkDelete" in channel)) { await i.reply({ ephemeral: true, embeds: [errorEmbed("This command only works in a text channel.")] }); return; }
       await i.deferReply({ ephemeral: true });
       try {
         const amount = i.options.getInteger("amount", true);
-        const deleted = await channel.bulkDelete(amount, true);
+        const deleted = await (channel as import("discord.js").TextChannel).bulkDelete(amount, true);
         await audit(i.user.id, "moderation.purge", "Channel", channel.id, { requested: amount, deleted: deleted.size });
         await i.editReply({ embeds: [overlandEmbed("Messages deleted", "Deleted " + deleted.size + " recent messages. Discord does not bulk-delete messages older than 14 days.")] });
       } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Purge failed.")] }); }
