@@ -128,6 +128,13 @@ export async function claimReward(memberId: string, rewardId: string) {
         if (stockUpdate.count !== 1) throw new Error("Reward is out of stock");
       }
 
+      // Ensure a balance row exists, including for free rewards.
+      await tx.pointBalance.upsert({
+        where: { memberId },
+        update: {},
+        create: { memberId },
+      });
+
       // Debit only if the current balance still covers the cost.
       const debit = await tx.pointBalance.updateMany({
         where: { memberId, overcredits: { gte: reward.costOvercredits } },
