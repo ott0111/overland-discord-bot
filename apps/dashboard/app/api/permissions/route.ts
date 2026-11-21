@@ -6,7 +6,7 @@ import { requireStaff, writeAudit } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "team.view");
   if (error) return error;
   try {
     const groups = await prisma.permissionGroup.findMany({
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { session, error } = await requireStaff(req);
+  const { session, error } = await requireStaff(req, "team.view");
   if (error) return error;
   if (session?.group !== "Owner") return NextResponse.json({ error: "Only an Owner can change permission group definitions" }, { status: 403 });
   const body = (await req.json()) as { groupId?: string; keys?: string[] };
