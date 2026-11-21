@@ -4,7 +4,7 @@ import { getGuild } from "./store.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
-  const supplied = (req.headers.authorization || "").replace(/^Bearer\\s+/i, "");
+  const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
   if (!expected || !supplied) return false;
   const a = Buffer.from(expected);
   const b = Buffer.from(supplied);
@@ -31,11 +31,12 @@ function sameDay(value, start, end) {
 }
 
 function overview(g) {
-  const now = new Date();
-  const today = new Date(now);
+  const today = new Date();
   today.setHours(0, 0, 0, 0);
   const tomorrow = new Date(today);
   tomorrow.setDate(tomorrow.getDate() + 1);
+  const members = Object.values(g.members || {});
+  const checkins = Array.isArray(g.checkins) ? g.checkins : [];
   const range = [];
   for (let i = 13; i >= 0; i--) {
     const start = new Date(today);
@@ -44,8 +45,8 @@ function overview(g) {
     end.setDate(end.getDate() + 1);
     range.push({
       date: start.toISOString().slice(0, 10),
-      checkins: (g.checkins || []).filter((x) => sameDay(x.createdAt || x.at || x.date, start, end)).length,
-      joins: Object.values(g.members || {}).filter((x) => sameDay(x.joinedAt, start, end)).length,
+      checkins: checkins.filter((x) => sameDay(x.createdAt || x.at || x.date, start, end)).length,
+      joins: members.filter((x) => sameDay(x.joinedAt, start, end)).length,
       points: 0,
     });
   }
@@ -58,10 +59,10 @@ function overview(g) {
     const category = String(tx.category || tx.reason || "other");
     categories.set(category, (categories.get(category) || 0) + amount);
     if (sameDay(tx.createdAt || tx.at, today, tomorrow)) pointsToday += amount;
-    const day = range.find((x) => x.date === (dateOf(tx.createdAt || tx.at)?.toISOString().slice(0, 10)));
+    const txDate = dateOf(tx.createdAt || tx.at);
+    const day = txDate && range.find((x) => x.date === txDate.toISOString().slice(0, 10));
     if (day) day.points += amount;
   }
-  const members = Object.values(g.members || {});
   const claims = Array.isArray(g.claims) ? g.claims : [];
   const submissions = Array.isArray(g.submissions) ? g.submissions : [];
   const tickets = Array.isArray(g.tickets) ? g.tickets : [];
@@ -71,7 +72,7 @@ function overview(g) {
     pendingClaims: claims.filter((x) => String(x.status || "").toUpperCase() === "PENDING").length,
     pendingSubmissions: submissions.filter((x) => String(x.status || "").toUpperCase() === "PENDING").length,
     pointsToday,
-    checkinsToday: (g.checkins || []).filter((x) => sameDay(x.createdAt || x.at || x.date, today, tomorrow)).length,
+    checkinsToday: checkins.filter((x) => sameDay(x.createdAt || x.at || x.date, today, tomorrow)).length,
     joinsToday: members.filter((x) => sameDay(x.joinedAt, today, tomorrow)).length,
     pointsByCategory: [...categories.entries()].map(([category, total]) => ({ category, total })).sort((a, b) => b.total - a.total),
     daily: range,
@@ -81,7 +82,7 @@ function overview(g) {
 
 function staffRecord(guildId, discordId) {
   const g = getGuild(guildId);
-  const member = g.team.find((x) => x.discordId === discordId && x.status !== "REMOVED" && x.status !== "INACTIVE" && x.status !== "SUSPENDED");
+  const member = g.team.find((x) => x.discordId === discordId && !["REMOVED", "INACTIVE", "SUSPENDED"].includes(x.status));
   if (!member) return { discordId, username: "", group: null, permissions: [] };
   return {
     discordId,
@@ -103,14 +104,15 @@ export function startCoreApi() {
     if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === "/health") return send(res, 200, { ok: true, service: "overland-core-api" });
-    const staffMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/staff\\/(\\d{17,20})$/);
+    const staffMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/staff\/(\d{17,20})$/);
     if (staffMatch) return send(res, 200, staffRecord(staffMatch[1], staffMatch[2]));
-    const overviewMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/overview$/);
+    const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
-    const auditMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/audit$/);
+    const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
     if (auditMatch) {
       const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 100)));
-      const rows = Array.isArray(getGuild(auditMatch[1]).audit) ? getGuild(auditMatch[1]).audit : [];
+      const guild = getGuild(auditMatch[1]);
+      const rows = Array.isArray(guild.audit) ? guild.audit : [];
       return send(res, 200, rows.slice(0, take).map((x) => ({
         id: x.id || x.auditId || String(x.at || x.createdAt || ""),
         actorId: x.actorId || x.discordId || null,
