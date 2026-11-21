@@ -5,6 +5,7 @@ import { logger, logError } from "./lib/logger.js";
 import { prisma } from "./lib/db.js";
 import { overlandEmbed, errorEmbed } from "./lib/embeds.js";
 import { claimReward } from "./modules/rewards/service.js";
+import { startVerification, completeVerification } from "./modules/verification/service.js";
 import { commands } from "./commands/index.js";
 import { registerEvents } from "./events/index.js";
 import { registerJobs, scheduleRecurring } from "./jobs/index.js";
@@ -15,6 +16,47 @@ async function main(): Promise<void> {
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent, GatewayIntentBits.GuildInvites] });
   const commandMap = new Map(commands.map((c) => [c.data.name, c]));
   client.on(Events.InteractionCreate, async (interaction) => {
+    if (interaction.isButton() && interaction.customId === "overland:verify:start") {
+      await interaction.deferReply({ ephemeral: true });
+      try {
+        if (!interaction.guildId || !interaction.guild) {
+          await interaction.editReply({ embeds: [errorEmbed("Use the verification panel inside the Overland server.")] });
+          return;
+        }
+        const user = await prisma.user.upsert({
+          where: { discordId: interaction.user.id },
+          update: { username: interaction.user.username },
+          create: { discordId: interaction.user.id, username: interaction.user.username },
+        });
+        const member = await prisma.discordMember.upsert({
+          where: { userId: user.id },
+          update: {},
+          create: { userId: user.id, guildId: interaction.guildId },
+        });
+        if (member.verifiedAt) {
+          await interaction.editReply({ embeds: [overlandEmbed("Already verified", "Your Citizen verification is already complete.")] });
+          return;
+        }
+        const ageDays = (Date.now() - interaction.user.createdTimestamp) / 86400000;
+        const result = await startVerification(member.id, ageDays, Boolean(interaction.user.avatar), interaction.guildId);
+        if (!result.passed) {
+          await interaction.editReply({ embeds: [errorEmbed(result.reasons.join("\n"))] });
+          return;
+        }
+        if (!result.challenge) {
+          await completeVerification(member.id, null, "", ageDays, Boolean(interaction.user.avatar), interaction.user.id, interaction.guild);
+          await interaction.editReply({ embeds: [overlandEmbed("Verification complete", "You are now verified as a Citizen. Welcome to Overland.")] });
+          return;
+        }
+        await interaction.editReply({
+          embeds: [overlandEmbed("Verification challenge", result.challenge.question + "\n\nSubmit your answer with /verify-answer. Challenge ID: " + result.challenge.id + "\nThis challenge expires in 10 minutes.")],
+        });
+      } catch (err) {
+        await interaction.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Verification could not start.")] }).catch(() => undefined);
+      }
+      return;
+    }
+
     if (interaction.isButton() && interaction.customId.startsWith("overland:reward:claim:")) {
       await interaction.deferReply({ ephemeral: true });
       try {
