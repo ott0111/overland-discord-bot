@@ -93,6 +93,21 @@ export function registerAutomations(client){
     }catch(e){console.error("[VoiceState]",e);}
   });
   client.on(Events.InteractionCreate,async i=>{
+    if(i.isStringSelectMenu()&&i.customId==="overland:role:select"){
+      try{
+        const g=getGuild(i.guildId),roleIds=g.settings.roleMenus?.[i.message.id]||[];
+        if(!roleIds.length)throw new Error("This role menu is no longer configured.");
+        if(i.values.some(id=>!roleIds.includes(id)))throw new Error("An invalid role was selected.");
+        const member=await i.guild.members.fetch(i.user.id);
+        for(const id of roleIds){
+          const role=await i.guild.roles.fetch(id).catch(()=>null);
+          if(!role||role.managed||role.permissions.has(PermissionFlagsBits.Administrator)||role.position>=i.guild.members.me.roles.highest.position)continue;
+          if(i.values.includes(id))await member.roles.add(role);
+          else await member.roles.remove(role);
+        }
+        return i.reply({content:"Your community role selections have been updated.",ephemeral:true});
+      }catch(e){return i.reply({content:e.message||"Could not update your roles.",ephemeral:true}).catch(()=>{});}
+    }
     if(!i.isButton())return;
     try{
       if(i.customId.startsWith("overland:role:toggle:")){
