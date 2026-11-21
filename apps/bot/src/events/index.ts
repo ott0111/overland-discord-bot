@@ -87,8 +87,10 @@ export function registerEvents(client: Client): void {
       }
 
       const welcome = await getWelcomeSettings();
-      if (welcome.enabled && welcome.channelId) {
-        const channel = await member.guild.channels.fetch(welcome.channelId).catch(() => null);
+      if (welcome.enabled) {
+        const channel = welcome.channelId
+          ? await member.guild.channels.fetch(welcome.channelId).catch(() => null)
+          : null;
         const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
         const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
         const welcomeEmbed = overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL());
