@@ -220,7 +220,7 @@ export async function rejectClaim(staffDiscordId: string, claimId: string) {
         await tx.reward.update({ where: { id: claim.rewardId }, data: { stock: reward.stock + 1 } });
       }
     }
-    return tx.rewardClaim.findUnique({ where: { id: claimId } });
+    return tx.rewardClaim.findUniqueOrThrow({ where: { id: claimId } });
   });
   await audit(staffDiscordId, "rewards.claim.rejected", "RewardClaim", claimId, { refunded: claim.costOvercredits });
   return updated;
