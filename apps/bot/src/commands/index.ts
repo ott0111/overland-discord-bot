@@ -540,11 +540,11 @@ export const commands: Command[] = [
     if (!c) { await i.editReply({ embeds: [errorEmbed("Campaign not found.")] }); return; }
     await i.editReply({ embeds: [overlandEmbed(c.name, `${c.description}\n\nObjectives: ${c.objectives ?? "See description."}\nReward: ${c.pointReward} points\nEnds: ${c.endsAt.toISOString().slice(0, 10)}\nRequirements: ${c.submissionRequirements ?? "None listed."}`)] });
   } },
-  { data: new SlashCommandBuilder().setName("submit").setDescription("Submit work to a campaign").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)).addStringOption((o) => o.setName("content").setDescription("Describe your submission").setRequired(true)).addStringOption((o) => o.setName("link").setDescription("Link to your work")), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("submit").setDescription("Submit work to a campaign").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)).addStringOption((o) => o.setName("content").setDescription("Describe your submission").setRequired(true)).addStringOption((o) => o.setName("category").setDescription("Type of contribution").addChoices({ name: "Community", value: "community" }, { name: "Social", value: "social" }, { name: "Creative", value: "creative" }, { name: "Research", value: "research" }, { name: "Education", value: "education" })).addStringOption((o) => o.setName("link").setDescription("Link to your work")), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
     const m = await ensureMember(i.user.id, i.user.username);
     try {
-      const { duplicate, submission } = await submitWork(m.id, i.options.getString("campaign", true), { content: i.options.getString("content", true), linkUrl: i.options.getString("link") });
+      const { duplicate, submission } = await submitWork(m.id, i.options.getString("campaign", true), { content: i.options.getString("content", true), category: (i.options.getString("category") ?? "social") as "community" | "social" | "creative" | "research" | "education", linkUrl: i.options.getString("link") });
       await i.editReply({ embeds: [overlandEmbed(duplicate ? "Submission already pending" : "Submission received", duplicate ? `You already have a pending submission (${submission.id}) for this campaign.` : `Submission ${submission.id} is pending staff review. You will be notified when it is reviewed.`)] });
     } catch (err) {
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Submission failed.")] });
