@@ -5,21 +5,24 @@
   "description": "Overland Core: Discord community operating system for Overland Finance",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "bot"
   ],
   "scripts": {
-    "dev:bot": "npm --prefix bot run dev",
+    "dev:bot": "npm --workspace overland-finance-bot run dev",
     "dev:dashboard": "npm --workspace apps/dashboard run dev",
     "build": "npm run build:bot && npm run build:dashboard",
-    "test": "npm --prefix bot test",
+    "test": "npm --workspace overland-finance-bot test",
     "prisma:validate": "npx prisma validate --schema prisma/schema.prisma",
     "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
     "prisma:migrate": "npx prisma migrate deploy --schema prisma/schema.prisma",
     "db:seed": "npx tsx prisma/seed.ts",
-    "build:bot": "npm --prefix bot run check",
+    "build:bot": "npm --workspace overland-finance-bot run check",
     "build:dashboard": "npm --workspace apps/dashboard run build",
     "typecheck": "npm --workspace apps/dashboard run typecheck",
-    "test:all": "npm test"
+    "test:all": "npm test",
+    "start": "npm --workspace overland-finance-bot start",
+    "register:commands": "npm --workspace overland-finance-bot run register"
   },
   "engines": {
     "node": ">=20"

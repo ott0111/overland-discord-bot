@@ -4,10 +4,11 @@ Plain JavaScript, Discord.js v14, JSON persistence. No PostgreSQL, Prisma, Redis
 
 ## Hosting setup
 
-Set the host's **working directory / root directory** to `bot`.
+You can host from either the repository root or the `bot/` directory. The root package now includes the bot as a workspace.
 
-- Install command: `npm install`
-- Startup command: `npm start`
+**From repository root:** install `npm install`, startup `npm start`.
+
+**If the host supports a bot subdirectory:** set root directory to `bot`, install `npm install`, startup `npm start`.
 - Node.js: 20 or newer
 - Persistent data directory: `bot/data/` (contains `overland.json`)
 
@@ -19,7 +20,7 @@ Add these environment variables in the hosting panel:
 - `OVERLAND_OWNER_USERNAME`: Optional display name.
 - `X_BEARER_TOKEN`: Optional X API bearer token.
 
-The bot loads all command modules and registers them automatically after connecting. You can also run `npm run register` manually.
+The bot loads all command modules and registers them automatically after connecting. From the repository root, run `npm run register:commands` to register manually; from `bot/`, run `npm run register`.
 
 ## Why slash commands sometimes do not appear
 

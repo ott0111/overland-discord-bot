@@ -8,7 +8,7 @@ const DATA_FILE = path.join(DATA_DIR, "overland.json");
 
 const defaults = () => ({
   settings: {
-    welcomeChannelId: null, welcomeMessage: "Welcome {user} to {server}!",
+    welcomeChannelId: null, autoRoleId: null, welcomeMessage: "Welcome {user} to {server}!",
     welcomeEnabled: false, welcomeDm: false, modLogChannelId: null,
     verificationChannelId: null, verificationEnabled: false,
     roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },

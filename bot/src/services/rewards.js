@@ -24,3 +24,5 @@ export async function reviewClaim(guildId,claimId,action,actorId) {
  else { c.status="REJECTED"; m.overcredits+=c.costOvercredits; if(r&&r.stock!==null&&r.stock!==undefined) r.stock++; }
  c.reviewedBy=actorId; c.reviewedAt=new Date().toISOString(); await saveStore(); return c;
 }
+
+export async function fulfillClaim(guildId,claimId,actorId){const g=getGuild(guildId),c=g.claims.find(x=>x.id===claimId);if(!c||c.status!=="APPROVED")throw new Error("Only approved claims can be fulfilled.");c.status="FULFILLED";c.fulfilledBy=actorId;c.fulfilledAt=new Date().toISOString();await saveStore();return c;}

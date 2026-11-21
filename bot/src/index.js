@@ -120,6 +120,7 @@ client.on(Events.GuildMemberAdd,async member=>{
   if(current){for(const inv of current.values()){if((inv.uses||0)>(previous.get(inv.code)||0)){used=inv;break;}}inviteCache.set(member.guild.id,new Map(current.map(x=>[x.code,x.uses||0])));}
   if(used)await recordJoin(member.guild.id,member,used.code);
   const cfg=g.settings;
+  if(cfg.autoRoleId){const role=await member.guild.roles.fetch(cfg.autoRoleId).catch(()=>null);if(role)await member.roles.add(role).catch(e=>console.error("[AutoRole]",e.message));}
   if(cfg.welcomeEnabled&&cfg.welcomeChannelId){const ch=await member.guild.channels.fetch(cfg.welcomeChannelId).catch(()=>null);if(ch?.isTextBased())await ch.send({embeds:[embed("Welcome to Overland",cfg.welcomeMessage.replaceAll("{user}",member.toString()).replaceAll("{server}",member.guild.name))]});}
   await saveStore();
  }catch(e){console.error("[GuildMemberAdd]",e);}
@@ -130,8 +131,8 @@ client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
  try{
   await ready.application.fetch();
-  const appId=process.env.DISCORD_CLIENT_ID||ready.application.id;
-  if(process.env.DISCORD_CLIENT_ID&&process.env.DISCORD_CLIENT_ID!==ready.application.id)console.warn("[Commands] DISCORD_CLIENT_ID does not match the logged-in bot application. Using the configured ID; check this value if registration fails.");
+  const appId=ready.application.id;
+  if(process.env.DISCORD_CLIENT_ID&&process.env.DISCORD_CLIENT_ID!==ready.application.id)console.warn("[Commands] DISCORD_CLIENT_ID does not match the logged-in bot application. Ignoring it and using the application ID from the bot token.");
   await syncCommands(appId);
  }catch(e){console.error("[Commands] FATAL: "+e.message);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
