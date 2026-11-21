@@ -20,6 +20,48 @@ async function main() {
       });
     }
   }
+  // Bootstrap the first Founder/Owner so the dashboard is not locked behind
+  // a staff record that nobody can create yet. No Discord role grants these permissions.
+  const founderDiscordId = process.env.OVERLAND_OWNER_DISCORD_ID?.trim();
+  if (founderDiscordId && /^\d{17,20}$/.test(founderDiscordId)) {
+    const founderUsername = process.env.OVERLAND_OWNER_USERNAME?.trim() || "Founder";
+    const ownerGroup = await prisma.permissionGroup.findUnique({ where: { name: "Owner" } });
+    if (!ownerGroup) throw new Error("Owner permission group is missing");
+    const founderUser = await prisma.user.upsert({
+      where: { discordId: founderDiscordId },
+      update: { username: founderUsername },
+      create: { discordId: founderDiscordId, username: founderUsername },
+    });
+    const founderMember = await prisma.discordMember.upsert({
+      where: { userId: founderUser.id },
+      update: {},
+      create: { userId: founderUser.id, guildId: process.env.DISCORD_GUILD_ID ?? "unconfigured" },
+    });
+    await prisma.internalTeamMember.upsert({
+      where: { discordId: founderDiscordId },
+      update: {
+        username: founderUsername,
+        publicRole: "Founder",
+        jobTitle: "Founder",
+        department: "Executive",
+        groupId: ownerGroup.id,
+        status: "ACTIVE",
+      },
+      create: {
+        memberId: founderMember.id,
+        discordId: founderDiscordId,
+        username: founderUsername,
+        publicRole: "Founder",
+        jobTitle: "Founder",
+        department: "Executive",
+        responsibilities: "Full control of Overland Finance community operations.",
+        groupId: ownerGroup.id,
+        status: "ACTIVE",
+      },
+    });
+    console.log("Founder Owner access bootstrapped for configured Discord ID.");
+  }
+
   const achievements: Array<[string,string,string,number,number]> = [
     ["first-verification","First Verification","Complete Discord verification","VERIFICATION",10,0],
     ["first-contribution","First Contribution","Get a contribution approved","CONTRIBUTION",20,5],
