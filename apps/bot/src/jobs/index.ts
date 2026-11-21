@@ -4,6 +4,7 @@ import { prisma } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { pollXPosts } from "../modules/x-integration/service.js";
 import { checkRetention7d } from "../modules/referrals/service.js";
+import { getXConfig } from "../modules/x-integration/service.js";
 
 export function registerJobs(client?: Client): void {
   registerJob("referral-retention", async (payload) => {
@@ -30,9 +31,11 @@ export function registerJobs(client?: Client): void {
 }
 
 export async function scheduleRecurring(): Promise<void> {
-  const slotKey = () => String(Math.floor(Date.now() / (15 * 60 * 1000)));
+  const config = await getXConfig();
+  const intervalMs = Math.max(5, config.pollMinutes) * 60 * 1000;
+  const slotKey = () => String(Math.floor(Date.now() / intervalMs));
   await enqueue("x-poll", {}, "x-poll-" + slotKey(), 0);
   setInterval(() => {
     enqueue("x-poll", {}, "x-poll-" + slotKey()).catch(() => undefined);
-  }, 15 * 60 * 1000);
+  }, intervalMs);
 }
