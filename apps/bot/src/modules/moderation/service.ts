@@ -1,6 +1,6 @@
 import type { Guild } from "discord.js";
 import { prisma, audit } from "../../lib/db.js";
-import { getConfig } from "../../lib/config.js";
+import { getConfig, clearConfigCache } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
 import {
   containsSuspiciousLink,
@@ -156,46 +156,78 @@ export async function isLockdownActive(): Promise<boolean> {
   return (config as unknown as Record<string, unknown>).lockdown === true;
 }
 
+/** Update validated automatic moderation thresholds. */
+export async function updateModerationConfig(actorId: string, patch: Partial<Pick<ModerationConfig,
+  "profanityFilter" | "inviteFilter" | "maxMentions" | "spamWindowSeconds" | "spamMaxMessages" | "suspiciousLinkAction">>) {
+  await requireModeration(actorId);
+  const current = await getModerationConfig();
+  const next = { ...current, ...patch };
+  if (!Number.isInteger(next.maxMentions) || next.maxMentions < 1 || next.maxMentions > 50) throw new Error("Mention limit must be between 1 and 50.");
+  if (!Number.isInteger(next.spamWindowSeconds) || next.spamWindowSeconds < 2 || next.spamWindowSeconds > 60) throw new Error("Spam window must be between 2 and 60 seconds.");
+  if (!Number.isInteger(next.spamMaxMessages) || next.spamMaxMessages < 3 || next.spamMaxMessages > 20) throw new Error("Spam threshold must be between 3 and 20 messages.");
+  await prisma.botConfiguration.upsert({
+    where: { key: "moderation" },
+    update: { value: next as never, updatedBy: actorId },
+    create: { key: "moderation", value: next as never, updatedBy: actorId },
+  });
+  clearConfigCache("moderation");
+  await audit(actorId, "moderation.config_update", "BotConfiguration", "moderation", patch as Record<string, unknown>);
+  return next;
+}
+
+type LockdownSnapshot = Record<string, "allow" | "deny" | "inherit">;
+
 /**
- * Lockdown on: flags it in config, records a LOCKDOWN action, and when a
- * guild is supplied locks every text channel for @everyone. Use sparingly;
- * only staff with moderation.action may toggle it.
+ * Lockdown records each channel's prior @everyone SendMessages overwrite.
+ * Disabling lockdown restores those exact values instead of blindly making
+ * every channel inherit permissions.
  */
 export async function lockdownOn(actorId: string, guild?: Guild) {
   await requireModeration(actorId);
-  const config = await getModerationConfig();
-  await prisma.botConfiguration.upsert({
-    where: { key: "moderation" },
-    update: { value: { ...config, lockdown: true } as never },
-    create: { key: "moderation", value: { ...config, lockdown: true } as never },
-  });
+  const config = await getModerationConfig() as ModerationConfig & { lockdown?: boolean; lockdownOverwrites?: LockdownSnapshot };
+  if (config.lockdown) return;
+  const snapshot: LockdownSnapshot = {};
   if (guild) {
     const everyone = guild.roles.everyone;
-    for (const [, channel] of guild.channels.cache) {
-      if (channel.isTextBased() && "permissionOverwrites" in channel) {
-        await channel.permissionOverwrites.edit(everyone, { SendMessages: false }).catch(() => undefined);
-      }
+    const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+    for (const [, channel] of channels) {
+      if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) continue;
+      const overwrite = channel.permissionOverwrites.cache.get(everyone.id);
+      snapshot[channel.id] = overwrite?.allow.has("SendMessages") ? "allow" : overwrite?.deny.has("SendMessages") ? "deny" : "inherit";
+      await channel.permissionOverwrites.edit(everyone, { SendMessages: false }).catch((err) =>
+        logger.warn({ err, channelId: channel.id }, "Could not apply lockdown to channel"));
     }
   }
-  await audit(actorId, "moderation.lockdown_on", "BotConfiguration", "moderation", {});
+  await prisma.botConfiguration.upsert({
+    where: { key: "moderation" },
+    update: { value: { ...config, lockdown: true, lockdownOverwrites: snapshot } as never, updatedBy: actorId },
+    create: { key: "moderation", value: { ...config, lockdown: true, lockdownOverwrites: snapshot } as never, updatedBy: actorId },
+  });
+  clearConfigCache("moderation");
+  await audit(actorId, "moderation.lockdown_on", "BotConfiguration", "moderation", { channels: Object.keys(snapshot).length });
 }
 
-/** Lockdown off: restores @everyone send permission in text channels. */
 export async function lockdownOff(actorId: string, guild?: Guild) {
   await requireModeration(actorId);
-  const config = await getModerationConfig();
-  await prisma.botConfiguration.upsert({
-    where: { key: "moderation" },
-    update: { value: { ...config, lockdown: false } as never },
-    create: { key: "moderation", value: { ...config, lockdown: false } as never },
-  });
+  const config = await getModerationConfig() as ModerationConfig & { lockdown?: boolean; lockdownOverwrites?: LockdownSnapshot };
+  const snapshot = config.lockdownOverwrites ?? {};
   if (guild) {
     const everyone = guild.roles.everyone;
-    for (const [, channel] of guild.channels.cache) {
-      if (channel.isTextBased() && "permissionOverwrites" in channel) {
-        await channel.permissionOverwrites.edit(everyone, { SendMessages: null }).catch(() => undefined);
-      }
+    const channels = await guild.channels.fetch().catch(() => guild.channels.cache);
+    for (const [channelId, state] of Object.entries(snapshot)) {
+      const channel = channels.get(channelId);
+      if (!channel || !channel.isTextBased() || !("permissionOverwrites" in channel)) continue;
+      await channel.permissionOverwrites.edit(everyone, {
+        SendMessages: state === "allow" ? true : state === "deny" ? false : null,
+      }).catch((err) => logger.warn({ err, channelId }, "Could not restore channel permissions after lockdown"));
     }
   }
-  await audit(actorId, "moderation.lockdown_off", "BotConfiguration", "moderation", {});
+  const { lockdownOverwrites: _snapshot, ...rest } = config;
+  await prisma.botConfiguration.upsert({
+    where: { key: "moderation" },
+    update: { value: { ...rest, lockdown: false } as never, updatedBy: actorId },
+    create: { key: "moderation", value: { ...rest, lockdown: false } as never, updatedBy: actorId },
+  });
+  clearConfigCache("moderation");
+  await audit(actorId, "moderation.lockdown_off", "BotConfiguration", "moderation", { restoredChannels: Object.keys(snapshot).length });
 }
