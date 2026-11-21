@@ -19,14 +19,11 @@ export function baseEmbed(client, title, description, color = BRAND.emerald) {
     .setTimestamp()
     .setFooter({ text: FOOTER });
 
-  if (client?.user) {
-    embed.setAuthor({
-      name: "Overland Finance",
-      iconURL: client.user.displayAvatarURL()
-    });
-  } else {
-    embed.setAuthor({ name: "Overland Finance" });
-  }
+  const brandIcon = process.env.OVERLAND_ICON_URL || client?.user?.displayAvatarURL();
+  embed.setAuthor({
+    name: "Overland Finance",
+    ...(brandIcon ? { iconURL: brandIcon } : {})
+  });
 
   return embed;
 }
