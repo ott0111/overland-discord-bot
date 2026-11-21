@@ -78,7 +78,7 @@ cp .env.example .env
 | `DISCORD_GUILD_ID` | Yes | Bot | Server ID the bot operates in. |
 | `GUILD_ID` | No | Dashboard team API | Legacy fallback only. The team route reads `DISCORD_GUILD_ID` first, so you do not need to set this. |
 | `DATABASE_URL` | Yes | Bot, dashboard, Prisma | PostgreSQL connection string, for example `postgresql://overland:SECRET@localhost:5432/overland_core?schema=public`. |
-| `REDIS_URL` | No | Bot | For example `redis://localhost:6379`. Without it the bot uses in-memory timers and delayed jobs are lost on restart. |
+| `REDIS_URL` | No | Bot | For example `redis://localhost:6379`. Enables BullMQ workers and durable delayed jobs. Without it, delayed jobs use in-memory timers and are lost on restart. |
 | `X_BEARER_TOKEN` | No | Bot | X API v2 bearer token. Blank means the X integration is disabled and logs that clearly. |
 | `X_USERNAME` | No | Bot | Defaults to `OverlandFinance`. |
 | `NEXTAUTH_URL` | Yes for dashboard | Dashboard | Public base URL of the dashboard, for example `http://localhost:3000` locally. The OAuth2 redirect is this URL plus `/api/auth/callback`. |
@@ -237,7 +237,7 @@ docs/DEPLOYMENT.md).
 
 ## 10. Verify the setup
 
-1. In Discord, run `/help`. All commands should be listed.
+1. In Discord, run `/help`. All commands should be listed.\n2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.\n3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.\n4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
 2. Run `/profile`. You should see your balances (0 Overpoints,
    0 Overcredits) and rank.
 3. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day.
@@ -251,7 +251,7 @@ docs/DEPLOYMENT.md).
    the integration enabled in configuration, the first poll runs
    immediately and then every 15 minutes.
 
-## 11. Tests and typecheck
+## 11. Tests, typecheck and CI
 
 No database and no generated Prisma Client are needed for these:
 
@@ -260,7 +260,7 @@ npm --workspace apps/bot run test      # vitest run, 42 tests
 npm --workspace apps/bot run typecheck # tsc --noEmit, must exit 0
 ```
 
-The tests cover daily limits, point values, atomicity invariants,
+The bot tests cover daily limits, point values, atomicity invariants,
 reward-claim guard, daily streak logic, leaderboard pagination,
 X dedupe by postId, ticket numbering, referral anti-abuse, role
 requirements, permissions, spam and duplicates, verification, tickets
@@ -271,7 +271,7 @@ and the database layer uses lazy initialisation
 Tests that need a live database do not exist yet; that is an open gap,
 see docs/ARCHITECTURE.md.
 
-## 12. Troubleshooting
+A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma\ngeneration and validation, both TypeScript checks, the bot tests and\nthe full production build on pushes and pull requests.\n\n## 12. Troubleshooting
 
 - `Missing or invalid environment configuration: ...` at bot startup:
   a required variable from the table in section 3 is missing or empty.
