@@ -2,12 +2,14 @@
 import { prisma, audit } from "./db.js";
 import { hasPermission } from "./permissions.js";
 import { DEFAULT_POINT_VALUES } from "@overland/shared";
-const cache = new Map<string, unknown>();
+const cache = new Map<string, { value: unknown; expiresAt: number }>();
+const CACHE_TTL_MS = 15_000;
 export async function getConfig<T>(key: string, fallback: T): Promise<T> {
-  if (cache.has(key)) return cache.get(key) as T;
+  const cached = cache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.value as T;
   const row = await prisma.botConfiguration.findUnique({ where: { key } });
   const value = (row?.value as T | undefined) ?? fallback;
-  cache.set(key, value);
+  cache.set(key, { value, expiresAt: Date.now() + CACHE_TTL_MS });
   return value;
 }
 export async function getPointValues() { return getConfig("pointValues", DEFAULT_POINT_VALUES); }
