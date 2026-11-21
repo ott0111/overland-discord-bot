@@ -33,11 +33,19 @@ export function registerJobs(client?: Client): void {
 }
 
 export async function scheduleRecurring(): Promise<void> {
-  const config = await getXConfig();
-  const intervalMs = Math.max(5, config.pollMinutes) * 60 * 1000;
-  const slotKey = () => String(Math.floor(Date.now() / intervalMs));
-  await enqueue("x-poll", {}, "x-poll-" + slotKey(), 0);
+  let lastSlot = "";
+  const schedulePoll = async () => {
+    const config = await getXConfig();
+    if (!config.enabled) return;
+    const intervalMinutes = Math.max(5, config.pollMinutes);
+    const slot = intervalMinutes + "-" + Math.floor(Date.now() / (intervalMinutes * 60 * 1000));
+    if (slot === lastSlot) return;
+    lastSlot = slot;
+    await enqueue("x-poll", {}, "x-poll-" + slot);
+  };
+  await schedulePoll();
+  // Re-read configuration each minute so /x-setup changes apply without a restart.
   setInterval(() => {
-    enqueue("x-poll", {}, "x-poll-" + slotKey()).catch(() => undefined);
-  }, intervalMs);
+    schedulePoll().catch((err) => logger.warn({ err }, "Could not schedule X poll"));
+  }, 60 * 1000);
 }
