@@ -15,6 +15,34 @@ export const PERMISSIONS = [
   "x.manage","analytics.view","audit.view","achievements.manage",
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number];
+
+export const DEFAULT_GROUP_PERMISSIONS: Record<string, readonly PermissionKey[]> = {
+  Executive: [
+    "team.view", "roles.assign", "roles.manage", "economy.view", "economy.adjust",
+    "campaigns.manage", "campaigns.review", "referrals.view", "rewards.manage",
+    "rewards.review", "tickets.view", "tickets.manage", "moderation.view",
+    "analytics.view", "audit.view", "achievements.manage",
+  ],
+  Administration: [
+    "team.view", "roles.assign", "roles.manage", "economy.view", "campaigns.manage",
+    "campaigns.review", "referrals.view", "rewards.manage", "rewards.review",
+    "tickets.view", "tickets.manage", "moderation.view", "moderation.action",
+    "config.manage", "analytics.view", "audit.view", "achievements.manage", "x.manage",
+  ],
+  Moderation: [
+    "moderation.view", "moderation.action", "tickets.view", "tickets.manage", "audit.view",
+  ],
+  Development: [
+    "analytics.view", "audit.view",
+  ],
+  Support: [
+    "tickets.view", "tickets.manage",
+  ],
+  Rewards_Management: [
+    "economy.view", "rewards.manage", "rewards.review", "referrals.view",
+  ],
+};
+
 export const DEFAULT_POINT_VALUES = {
   community: { dailyCheckin: 5, participation: 2, helpfulAnswer: 5, eventParticipation: 15, weeklyChallenge: 20, approvedContribution: 20 },
   social: { xPost: 15, infographic: 25, educationalThread: 30, article: 30, campaignContribution: 20, video: 30 },
