@@ -2,6 +2,7 @@ import type { Guild } from "discord.js";
 import { prisma, audit } from "../../lib/db.js";
 import { getConfig } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
+import { checkComradeConversion } from "../referrals/service.js";
 
 export async function grantRole(memberId: string, roleName: string, actorId: string, reason?: string) {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
@@ -203,6 +204,11 @@ export async function grantComrade(memberId: string, actorId: string, guild?: Gu
   });
   if (!hasCitizen) throw new Error("Comrade requires the Citizen role first");
   await assignRole(memberId, "Comrade", actorId, "X follow verified", guild);
+  const referral = await prisma.referral.findFirst({ where: { referredId: memberId, verified: true } });
+  if (referral) {
+    await checkComradeConversion(referral.id).catch((err) =>
+      audit(actorId, "referrals.comrade_bonus_failed", "Referral", referral.id, { message: err instanceof Error ? err.message : String(err) }));
+  }
 }
 
 /** Mark a member's X follow as verified (staff or supported integration). */
