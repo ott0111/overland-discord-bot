@@ -106,43 +106,68 @@ export async function updateReward(staffDiscordId: string, rewardId: string, inp
  */
 export async function claimReward(memberId: string, rewardId: string) {
   const idempotencyKey = `claim-${memberId}-${rewardId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const result = await prisma.$transaction(async (tx: any) => {
-    const reward = await tx.reward.findUnique({ where: { id: rewardId } });
-    if (!reward) throw new Error("Reward is not available");
-    const pending = await tx.rewardClaim.findFirst({
+  try {
+    const result = await prisma.$transaction(async (tx: any) => {
+      const reward = await tx.reward.findUnique({ where: { id: rewardId } });
+      if (!reward || !reward.active) throw new Error("Reward is not available");
+
+      const pending = await tx.rewardClaim.findFirst({
+        where: { rewardId, memberId, status: "PENDING" },
+      });
+      if (pending) return { duplicate: true, claim: pending, balance: null };
+
+      if (reward.costOvercredits < 0) throw new Error("Reward cost must not be negative");
+
+      // Reserve finite stock with a conditional decrement. Concurrent claims
+      // cannot take the last item twice.
+      if (reward.stock !== null) {
+        const stockUpdate = await tx.reward.updateMany({
+          where: { id: rewardId, active: true, stock: { gt: 0 } },
+          data: { stock: { decrement: 1 } },
+        });
+        if (stockUpdate.count !== 1) throw new Error("Reward is out of stock");
+      }
+
+      // Debit only if the current balance still covers the cost.
+      const debit = await tx.pointBalance.updateMany({
+        where: { memberId, overcredits: { gte: reward.costOvercredits } },
+        data: { overcredits: { decrement: reward.costOvercredits } },
+      });
+      if (debit.count !== 1) throw new Error("Insufficient Overcredits");
+
+      const updatedBalance = await tx.pointBalance.findUniqueOrThrow({ where: { memberId } });
+      await tx.pointTransaction.create({
+        data: {
+          memberId,
+          currency: "OVERCREDITS",
+          category: "reward",
+          amount: -reward.costOvercredits,
+          balanceAfter: updatedBalance.overcredits,
+          source: "REWARD_CLAIM",
+          idempotencyKey,
+          reason: `Claimed ${reward.name}`,
+        },
+      });
+
+      const claim = await tx.rewardClaim.create({
+        data: { rewardId, memberId, costOvercredits: reward.costOvercredits, idempotencyKey },
+      });
+      return { duplicate: false, claim, balance: updatedBalance };
+    });
+
+    if (!result.duplicate) {
+      await audit(null, "rewards.claim", "RewardClaim", result.claim.id, { rewardId, memberId });
+    }
+    return result;
+  } catch (error) {
+    // A partial unique index permits only one pending claim per member/reward.
+    // If two requests race, the losing transaction rolls back its debit and stock reservation.
+    const existing = await prisma.rewardClaim.findFirst({
       where: { rewardId, memberId, status: "PENDING" },
-    });
-    if (pending) return { duplicate: true, claim: pending, balance: null };
-    const balance = await tx.pointBalance.findUnique({ where: { memberId } });
-    if (!balance) throw new Error("Insufficient Overcredits");
-    const guard = canClaimReward(balance.overcredits, reward.costOvercredits, reward.stock, reward.active);
-    if (!guard.ok) throw new Error(guard.reason ?? "Reward is not available");
-    const updatedBalance = await tx.pointBalance.update({
-      where: { memberId },
-      data: { overcredits: balance.overcredits - reward.costOvercredits },
-    });
-    await tx.pointTransaction.create({
-      data: {
-        memberId,
-        currency: "OVERCREDITS",
-        category: "reward",
-        amount: -reward.costOvercredits,
-        balanceAfter: updatedBalance.overcredits,
-        source: "REWARD_CLAIM",
-        idempotencyKey,
-        reason: `Claimed ${reward.name}`,
-      },
-    });
-    if (reward.stock !== null) await tx.reward.update({ where: { id: rewardId }, data: { stock: reward.stock - 1 } });
-    const claim = await tx.rewardClaim.create({
-      data: { rewardId, memberId, costOvercredits: reward.costOvercredits, idempotencyKey },
-    });
-    return { duplicate: false, claim, balance: updatedBalance };
-  });
-  if (!result.duplicate) {
-    await audit(null, "rewards.claim", "RewardClaim", result.claim.id, { rewardId, memberId });
+    }).catch(() => null);
+    if (existing) return { duplicate: true, claim: existing, balance: null };
+    throw error;
   }
-  return result;
 }
 
 async function setClaimStatus(
