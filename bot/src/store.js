@@ -25,7 +25,7 @@ const defaults = () => ({
   members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
   achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [],
-  suggestions: [], reports: [], appeals: [], vouches: [], blacklist: [], tempRoles: [],
+  suggestions: [], reports: [], appeals: [], vouches: [], blacklist: [], tempRoles: [], reminders: [],
   stats: { messages: 0, joins: 0, leaves: 0, deletedMessages: 0, voiceMinutes: 0 }
 });
 
@@ -63,7 +63,7 @@ function normalizeGuild(guild) {
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
   guild.members ||= {};
   guild.tempRoles ||= [];
-  for (const key of ["suggestions","reports","appeals","vouches","blacklist"]) guild[key] ||= [];
+  for (const key of ["suggestions","reports","appeals","vouches","blacklist","reminders"]) guild[key] ||= [];
   guild.settings.voice.autoVoiceRooms ||= {}; guild.settings.voice.voiceSessions ||= {}; guild.settings.voice.voiceStats ||= {};
   return guild;
 }
@@ -82,7 +82,7 @@ export function getMember(guildId, user) {
     id, username: username || id, joinedAt: new Date().toISOString(), verifiedAt: null,
     xFollowVerified: false, roles: [], overpoints: 0, overcredits: 0,
     communityPoints: 0, socialPoints: 0, referralPoints: 0, contributionPoints: 0,
-    streak: 0, lastCheckin: null, suspicious: false, achievements: []
+    streak: 0, lastCheckin: null, suspicious: false, rulesAcceptedAt: null, achievements: []
   };
   if (username) guild.members[id].username = username;
   return guild.members[id];

@@ -80,7 +80,8 @@ async function announceXPosts(){
  }
 }
 async function handleVerifyButton(i){
- const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
+ const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;
+ if(!m.rulesAcceptedAt)throw new Error("Please review and accept the server rules with /rules before verifying.");if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
  const a=Math.floor(Math.random()*8)+2,b=Math.floor(Math.random()*8)+2;
  m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
@@ -107,6 +108,7 @@ async function createTicket(i,category="support"){
 }
 async function handleInteraction(i){
  try{
+  if(i.isButton()&&i.customId==="overland:rules:accept"){const m=getMember(i.guildId,i.user);m.rulesAcceptedAt=new Date().toISOString();await saveStore();return i.reply({content:"Rules accepted. You can now complete /verify.",flags:MessageFlags.Ephemeral});}
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
   if(i.isStringSelectMenu()&&i.customId==="overland:ticket:category")return await createTicket(i,i.values[0]);
