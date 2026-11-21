@@ -1,8 +1,8 @@
-import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
+import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
 import { prisma, audit } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
-import { getInfoContent } from "../lib/config.js";
+import { getInfoContent, getConfig, clearConfigCache } from "../lib/config.js";
 import { awardDailyCheckin } from "../modules/economy/service.js";
 import { hasPermission } from "../lib/permissions.js";
 import { listActive, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
@@ -10,7 +10,7 @@ import { checkAndGrant, listMemberAchievements } from "../modules/achievements/s
 import { listRewards, claimReward, approveClaim, rejectClaim, fulfillClaim } from "../modules/rewards/service.js";
 import { createTicketChannel, claimTicket, closeTicket, findTicketByChannel, formatTicketNumber } from "../modules/tickets/service.js";
 import { getLeaderboard } from "../modules/leaderboards/service.js";
-import { announceManual } from "../modules/x-integration/service.js";
+import { announceManual, getXConfig } from "../modules/x-integration/service.js";
 import { getReferralStats } from "../modules/referrals/service.js";
 import { staffVerify, startVerification, completeVerification } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
@@ -202,10 +202,10 @@ function setupCmd(): Command {
       const instructions: Record<string, string> = {
         welcome: "Run /welcome setup and choose a channel, title and message. Use {user} and {server} placeholders. Preview with /welcome preview.",
         links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
-        tickets: "Create a private ticket category and staff role, then configure the ticket settings in the Overland dashboard.",
-        verification: "Configure minimum account age and CAPTCHA requirements in the dashboard. Set the onboarding channel and Citizen role.",
+        tickets: "Run /ticket-setup to set the staff role and private ticket category.",
+        verification: "Run /verification-setup to configure account age, CAPTCHA and avatar requirements. Configure the Citizen role in the dashboard.",
         security: "Use /security status to inspect protections and /security lockdown to restrict server messaging during an incident.",
-        x: "Configure the X username, bearer token and announcement channel in environment variables and the dashboard.",
+        x: "Run /x-setup to configure the username, announcement channel and polling. Add X_BEARER_TOKEN to the bot environment.",
       };
       await i.reply({ ephemeral: true, embeds: [overlandEmbed("Setup: " + feature, instructions[feature] ?? "See the deployment guide.")] });
     },
@@ -336,6 +336,105 @@ function purgeCmd(): Command {
   };
 }
 
+
+function ticketSetupCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("ticket-setup").setDescription("Configure private support tickets")
+      .addRoleOption((o) => o.setName("staff_role").setDescription("Role allowed to view and answer tickets"))
+      .addChannelOption((o) => o.setName("category").setDescription("Discord category for new ticket channels").addChannelTypes(ChannelType.GuildCategory)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "config.manage"))) return;
+      const current = await getConfig<{ staffRoleId?: string | null; categoryChannelId?: string | null }>("tickets", {});
+      const role = i.options.getRole("staff_role");
+      const category = i.options.getChannel("category");
+      const next = {
+        staffRoleId: role?.id ?? current.staffRoleId ?? null,
+        categoryChannelId: category?.id ?? current.categoryChannelId ?? null,
+      };
+      await prisma.botConfiguration.upsert({
+        where: { key: "tickets" }, update: { value: next as never, updatedBy: i.user.id },
+        create: { key: "tickets", value: next as never, updatedBy: i.user.id },
+      });
+      clearConfigCache("tickets");
+      await audit(i.user.id, "settings.tickets_update", "BotConfiguration", "tickets", next);
+      await i.reply({ ephemeral: true, embeds: [overlandEmbed("Ticket settings saved", "Staff role: " + (next.staffRoleId ? "<@&" + next.staffRoleId + ">" : "Not set") + "\nCategory: " + (next.categoryChannelId ? "<#" + next.categoryChannelId + ">" : "Not set"))] });
+    },
+  };
+}
+function verificationSetupCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("verification-setup").setDescription("Configure member verification")
+      .addIntegerOption((o) => o.setName("minimum_account_age_days").setDescription("Minimum Discord account age").setMinValue(0).setMaxValue(365))
+      .addBooleanOption((o) => o.setName("require_captcha").setDescription("Require the verification challenge"))
+      .addBooleanOption((o) => o.setName("require_avatar").setDescription("Require a Discord avatar")),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "config.manage"))) return;
+      const current = await getConfig<{ minAccountAgeDays: number; requireCaptcha: boolean; requireAvatar?: boolean }>("verification", {
+        minAccountAgeDays: 7, requireCaptcha: true, requireAvatar: false,
+      });
+      const patch = {
+        minAccountAgeDays: i.options.getInteger("minimum_account_age_days") ?? current.minAccountAgeDays,
+        requireCaptcha: i.options.getBoolean("require_captcha") ?? current.requireCaptcha,
+        requireAvatar: i.options.getBoolean("require_avatar") ?? current.requireAvatar ?? false,
+      };
+      if (i.options.getInteger("minimum_account_age_days") === null &&
+          i.options.getBoolean("require_captcha") === null && i.options.getBoolean("require_avatar") === null) {
+        await i.reply({ ephemeral: true, embeds: [errorEmbed("Provide at least one verification setting to change.")] });
+        return;
+      }
+      await prisma.botConfiguration.upsert({
+        where: { key: "verification" }, update: { value: patch as never, updatedBy: i.user.id },
+        create: { key: "verification", value: patch as never, updatedBy: i.user.id },
+      });
+      clearConfigCache("verification");
+      await audit(i.user.id, "settings.verification_update", "BotConfiguration", "verification", patch);
+      await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification settings saved", "Minimum account age: " + patch.minAccountAgeDays + " days\nCAPTCHA: " + (patch.requireCaptcha ? "Required" : "Disabled") + "\nAvatar: " + (patch.requireAvatar ? "Required" : "Optional"))] });
+    },
+  };
+}
+function xSetupCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("x-setup").setDescription("Configure X timeline announcements")
+      .addStringOption((o) => o.setName("username").setDescription("X username without @"))
+      .addChannelOption((o) => o.setName("channel").setDescription("Announcement channel").addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement))
+      .addBooleanOption((o) => o.setName("enabled").setDescription("Enable automatic announcements"))
+      .addIntegerOption((o) => o.setName("poll_minutes").setDescription("Polling interval in minutes").setMinValue(5).setMaxValue(1440))
+      .addBooleanOption((o) => o.setName("ignore_replies").setDescription("Ignore replies"))
+      .addBooleanOption((o) => o.setName("ignore_reposts").setDescription("Ignore reposts")),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "x.manage"))) return;
+      const current = await getXConfig();
+      const username = i.options.getString("username") ?? current.username;
+      if (!/^[A-Za-z0-9_]{1,15}$/.test(username)) {
+        await i.reply({ ephemeral: true, embeds: [errorEmbed("Enter a valid X username without @.")] });
+        return;
+      }
+      const channel = i.options.getChannel("channel");
+      const next = {
+        ...current, username,
+        channelId: channel?.id ?? current.channelId,
+        enabled: i.options.getBoolean("enabled") ?? current.enabled,
+        pollMinutes: i.options.getInteger("poll_minutes") ?? current.pollMinutes,
+        ignoreReplies: i.options.getBoolean("ignore_replies") ?? current.ignoreReplies,
+        ignoreReposts: i.options.getBoolean("ignore_reposts") ?? current.ignoreReposts,
+      };
+      if (!i.options.getString("username") && !channel && i.options.getBoolean("enabled") === null &&
+          i.options.getInteger("poll_minutes") === null && i.options.getBoolean("ignore_replies") === null &&
+          i.options.getBoolean("ignore_reposts") === null) {
+        await i.reply({ ephemeral: true, embeds: [errorEmbed("Provide at least one X setting to change.")] });
+        return;
+      }
+      await prisma.botConfiguration.upsert({
+        where: { key: "xIntegration" }, update: { value: next as never, updatedBy: i.user.id },
+        create: { key: "xIntegration", value: next as never, updatedBy: i.user.id },
+      });
+      clearConfigCache("xIntegration");
+      await audit(i.user.id, "settings.x_update", "BotConfiguration", "xIntegration", next);
+      await i.reply({ ephemeral: true, embeds: [overlandEmbed("X integration settings saved", "Account: @" + next.username + "\nChannel: " + (next.channelId ? "<#" + next.channelId + ">" : "Not set") + "\nEnabled: " + (next.enabled ? "Yes" : "No") + "\nPoll interval: " + next.pollMinutes + " minutes\nReplies ignored: " + next.ignoreReplies + "\nReposts ignored: " + next.ignoreReposts)] });
+    },
+  };
+}
+
 export const commands: Command[] = [
   profileCmd(), dailyCmd(), leaderboardCmd(),
   simpleCmd("about", "About Overland Finance", (i) => replyInfo(i, "about", "About Overland Finance")),
@@ -345,7 +444,7 @@ export const commands: Command[] = [
   simpleCmd("updates", "Latest Overland updates", (i) => replyInfo(i, "updates", "Updates")),
   simpleCmd("faq", "Frequently asked questions", (i) => replyInfo(i, "faq", "FAQ")),
   simpleCmd("opportunities", "Open opportunities", (i) => replyInfo(i, "opportunities", "Opportunities")),
-  socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(), kickCmd(), banCmd(), unbanCmd(), modHistoryCmd(), purgeCmd(),
+  socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(), kickCmd(), banCmd(), unbanCmd(), modHistoryCmd(), purgeCmd(), ticketSetupCmd(), verificationSetupCmd(), xSetupCmd(),
   { data: new SlashCommandBuilder().setName("help").setDescription("List Overland Core commands"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Overland Core commands", commands.map((c: Command) => `/${c.data.name} - ${c.data.description}`).join("\n"))] }); } },
   { data: new SlashCommandBuilder().setName("invite").setDescription("Get your personal referral invite link"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
