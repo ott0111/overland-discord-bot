@@ -8,9 +8,9 @@ const DATA_FILE = path.join(DATA_DIR, "overland.json");
 
 const defaults = () => ({
   settings: {
-    welcomeChannelId: null, autoRoleId: null, welcomeMessage: "Welcome {user} to {server}!",
+    welcomeChannelId: null, leaveChannelId: null, autoRoleId: null, verifiedRoleId: null, leaveMessage: "{user} has left {server}.", eventLogChannelId: null, suggestionChannelId: null, reportChannelId: null, appealChannelId: null, welcomeMessage: "Welcome {user} to {server}!",
     welcomeEnabled: false, welcomeDm: false, modLogChannelId: null,
-    verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
+    verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },\n    security: { antiSpamEnabled: false, antiLinkEnabled: false, massMentionEnabled: true, spamThreshold: 6, spamWindowMs: 8000, timeoutMinutes: 5, maxMentions: 5, allowedDomains: [] },\n    voice: { lobbyChannelId: null, categoryId: null, enabled: false, autoVoiceRooms: {}, voiceSessions: {}, voiceStats: {} },
     roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
     dailyLimits: { OVERPOINTS: 100, OVERCREDITS: 250 }, pointValues: {
       daily: 5, participation: 2, helpful: 5, event: 15, weekly: 20, streakBonus: 10, verifiedReferral: 10, sevenDayActive: 10, comradeBonus: 5,
@@ -23,7 +23,7 @@ const defaults = () => ({
   members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
   achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [],
-  stats: { messages: 0, joins: 0, leaves: 0 }
+  suggestions: [], reports: [], appeals: [], vouches: [], blacklist: [],\n  stats: { messages: 0, joins: 0, leaves: 0, deletedMessages: 0, voiceMinutes: 0 }
 });
 
 let database = { version: 1, guilds: {} };
@@ -50,13 +50,13 @@ function normalizeGuild(guild) {
     if (guild[key] === undefined) guild[key] = value;
   }
   guild.settings = { ...base.settings, ...(guild.settings || {}) };
-  guild.settings.verification = { ...base.settings.verification, ...(guild.settings.verification || {}) };
+  guild.settings.verification = { ...base.settings.verification, ...(guild.settings.verification || {}) };\n  guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };\n  guild.settings.voice = { ...base.settings.voice, ...(guild.settings.voice || {}) };
   guild.recentJoins ||= [];
   guild.settings.dailyLimits = { ...base.settings.dailyLimits, ...(guild.settings.dailyLimits || {}) };
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
   guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
-  guild.members ||= {};
+  guild.members ||= {};\n  for (const key of ["suggestions","reports","appeals","vouches","blacklist"]) guild[key] ||= [];\n  guild.settings.voice.autoVoiceRooms ||= {}; guild.settings.voice.voiceSessions ||= {}; guild.settings.voice.voiceStats ||= {};
   return guild;
 }
 
