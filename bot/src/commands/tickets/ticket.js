@@ -65,8 +65,9 @@ async function closeTicket(i) {
   if (g.settings.ticketArchiveCategoryId) await channel.setParent(g.settings.ticketArchiveCategoryId).catch(() => {});
   await saveStore();
   await channel.send({ embeds: [successEmbed("TICKET ARCHIVED", "This ticket has been closed by " + i.user + ". Staff can still review its history.")] }).catch(() => {});
-  const feedbackRow = new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId("overland:ticket:rating:" + n + ":" + channel.id).setLabel(n + " / 5").setStyle(n >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)));
-  await channel.send({ embeds: [embed("HOW WAS YOUR SUPPORT EXPERIENCE?", "Your feedback helps us improve. Select a rating from 1 to 5.")], components: [feedbackRow] }).catch(() => {});
+  const feedbackRow = new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId("overland:ticket:rating:" + n + ":" + channel.id + ":" + i.guildId).setLabel(n + " / 5").setStyle(n >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)));
+  const owner = await i.client.users.fetch(ownerId).catch(() => null);
+  if (owner) await owner.send({ embeds: [embed("HOW WAS YOUR SUPPORT EXPERIENCE?", "Your Overland support ticket has been closed. Please rate your experience from 1 to 5.")], components: [feedbackRow] }).catch(() => {});
   return reply(i, "Ticket archived", "The ticket is now closed and retained for staff review.");
 }
 

@@ -79,7 +79,9 @@ async function announceXPosts(){
  }
 }
 async function handleVerifyButton(i){
- const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
+ const parts=i.customId.split(":"),expected=parts[3],guildForCheck=i.guildId||parts[4];
+ if(expected&&expected!==i.user.id)throw new Error("This verification challenge belongs to another member.");
+ const m=getMember(guildForCheck,i.user),g=getGuild(guildForCheck),v=g.settings.verification;if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
  const a=Math.floor(Math.random()*8)+2,b=Math.floor(Math.random()*8)+2;
  m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
@@ -97,7 +99,7 @@ async function createTicket(i,category="support"){
  if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]});
  const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
  const ch=await guild.channels.create({name:"ticket-"+category+"-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
- const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
+ const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null,lastActivityAt:new Date().toISOString()};
  g.tickets.unshift(record);await saveStore();
  const ticketEmbed=embed("OVERLAND SUPPORT  /  "+category.toUpperCase(),"Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
   .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
