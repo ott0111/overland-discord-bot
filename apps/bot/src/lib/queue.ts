@@ -13,7 +13,8 @@ export function registerJob(name: string, handler: JobHandler): void {
 export async function startWorkers(): Promise<void> {
   if (!process.env.REDIS_URL || workers.length) return;
   const [{ Worker }, { default: IORedis }] = await Promise.all([import("bullmq"), import("ioredis")]);
-  const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
+  const Redis = IORedis as unknown as new (...args: any[]) => any;
+  const connection = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
   for (const [name, handler] of handlers) {
     const worker = new Worker(name, async (job) => {
       await handler((job.data ?? {}) as Record<string, unknown>);
@@ -44,7 +45,8 @@ export async function enqueue(
   if (process.env.REDIS_URL) {
     try {
       const [{ Queue }, { default: IORedis }] = await Promise.all([import("bullmq"), import("ioredis")]);
-      const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
+      const Redis = IORedis as unknown as new (...args: any[]) => any;
+      const connection = new Redis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
       const queue = new Queue(name, { connection });
       await queue.add(name, payload, { jobId: idempotencyKey, delay: delayMs, removeOnComplete: 1000, removeOnFail: 5000 });
       await queue.close();
