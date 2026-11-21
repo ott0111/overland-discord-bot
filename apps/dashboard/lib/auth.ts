@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getPrisma } from "./prisma";
+import { coreApiGet, configuredGuildId } from "./core-api";
 
 /** Discord OAuth2 for the dashboard. Exchange code for a token, fetch the user, then
  *  check InternalTeamMember + PermissionGroup in the database for RBAC. No session
@@ -149,20 +150,21 @@ export async function exchangeCodeForSession(code: string): Promise<DashboardSes
   const me = (await meRes.json()) as { id: string; username: string };
   let session: DashboardSession = { discordId: me.id, username: me.username, group: null, permissions: [] };
   try {
-    const staff = await getPrisma().internalTeamMember.findUnique({
-      where: { discordId: me.id },
-      include: { group: { include: { permissions: true } } },
-    });
-    if (staff && staff.status === "ACTIVE") {
+    const guildId = configuredGuildId();
+    if (!guildId) throw new Error("DISCORD_GUILD_ID is not configured");
+    const staff = await coreApiGet<{ discordId: string; username: string; group: string | null; permissions: string[] }>(
+      "/v1/guilds/" + encodeURIComponent(guildId) + "/staff/" + encodeURIComponent(me.id),
+    );
+    if (staff.group) {
       session = {
         discordId: me.id,
         username: me.username,
-        group: staff.group.name,
-        permissions: staff.group.permissions.map((p: { key: string }) => p.key),
+        group: staff.group,
+        permissions: staff.permissions,
       };
     }
   } catch {
-    // Database unavailable: session carries no permissions.
+    // Bot API unavailable or user is not staff: session has no permissions.
   }
   return session;
 }
