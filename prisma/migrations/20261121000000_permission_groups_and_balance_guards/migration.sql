@@ -45,6 +45,15 @@ ALTER TABLE "campaign_submissions"
   ADD COLUMN "category" TEXT NOT NULL DEFAULT 'social';
 
 
+-- Collapse duplicate legacy snapshots before adding the unique key.
+DELETE FROM "leaderboard_snapshots" a
+USING "leaderboard_snapshots" b
+WHERE a.ctid < b.ctid
+  AND a."period" = b."period"
+  AND a."category" = b."category"
+  AND a."periodKey" = b."periodKey"
+  AND a."memberId" = b."memberId";
+
 -- Prevent duplicate leaderboard rows when scheduled snapshots are retried.
 CREATE UNIQUE INDEX "leaderboard_snapshots_period_category_periodKey_memberId_key"
   ON "leaderboard_snapshots"("period", "category", "periodKey", "memberId");
