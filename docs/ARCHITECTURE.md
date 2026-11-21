@@ -110,7 +110,7 @@ step (`npm --workspace apps/bot run deploy-commands`, guild scope only).
 | `antifraud.ts` | Pure helpers only: message hashing and duplicate detection, spam bursts, suspicious accounts, self-referral and burst detection, suspicious links, mention counting. No database, fully unit tested. |
 | `embeds.ts` | Overland brand embeds: emerald #00C982, lime #C5E86C, dark backgrounds, white and muted grey type. |
 | `logger.ts` | pino logger, level from `LOG_LEVEL`, pretty output in development. |
-| `queue.ts` | `registerJob` and `enqueue` with idempotency-key dedupe. With `REDIS_URL` it uses BullMQ; without it, in-memory timers. Delayed jobs are lost on restart without Redis. |
+| `queue.ts` | `registerJob`, `startWorkers`, `enqueue` and graceful worker shutdown. With `REDIS_URL`, BullMQ workers execute durable delayed jobs; without it, in-memory timers are used and delayed jobs are lost on restart. |
 | `x-client.ts` | Official X API v2 user timeline. Returns null when `X_BEARER_TOKEN` is not set, never fakes data. |
 
 ## 6. Feature modules (`apps/bot/src/modules`)
@@ -130,11 +130,11 @@ rules are in one place.
 | `rewards` | Reward catalog, atomic claim (debit plus stock decrement in one transaction, pending-claim dedupe, refund on rejection), claim review. |
 | `leaderboards` | Lifetime (live balances) and monthly/weekly (snapshots) leaderboards, pagination, period keys, member rank. |
 | `achievements` | Grant achievements atomically with their point rewards, check-and-grant after earning events, custom achievement creation (staff only). |
-| `verification` | Captcha answer check, account age and avatar check, staff verification that grants Citizen. |
+| `verification` | Short-lived CAPTCHA challenges, configurable account age/avatar requirements, anti-raid holds, member verification and staff bypass that grants Citizen. |
 | `tickets` | Ticket creation with private channels, claim, first-response tracking, close with transcript, archive, reopen, add/remove members, rating. |
-| `moderation` | Warnings, timeouts, kicks, bans, moderation history, audit logging. |
+| `moderation` | Configurable spam, duplicate, suspicious-link, invite, mass-mention and profanity filters; warnings, timeouts, kicks, bans, unbans, purge, moderation history and reversible lockdown. |
 | `x-integration` | Poll the X timeline, announce new posts, manual announcement, post history, pure dedupe and announce filters. |
-| `info` | Info page content served from `BotConfiguration`, editable in the dashboard, never hardcoded. |
+| `settings` | Persistent HTTPS social links and welcome settings edited through slash commands. |\n| `info` | Info page content served from `BotConfiguration`, editable in the dashboard, never hardcoded. |
 
 ## 7. Database
 
