@@ -50,7 +50,8 @@ function profileCmd(): Command {
       const roles = await prisma.memberRole.findMany({ where: { memberId: m.id }, include: { role: true } });
       const latestCheckin = await prisma.dailyCheckin.findFirst({ where: { memberId: m.id }, orderBy: { date: "desc" } });
       const achievements = await listMemberAchievements(m.id);
-      const e = overlandEmbed(`${target.username} profile`, `Joined the community and verified through Overland Core.`)
+      const joinedLabel = m.joinedAt ? m.joinedAt.toLocaleDateString("en-CA") : "Join date unavailable";
+      const e = overlandEmbed(`${target.username} profile`, "Joined Overland: " + joinedLabel)
         .setThumbnail(target.displayAvatarURL())
         .addFields(
           { name: "Overpoints", value: String(bal.overpoints), inline: true },
@@ -152,7 +153,10 @@ function socialsCmd(): Command {
     data: new SlashCommandBuilder().setName("socials").setDescription("View Overland's configured social links"),
     execute: async (i) => {
       const links = await getSavedLinks();
-      const embed = overlandEmbed("Overland socials", links.slice(0, 25).map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n").slice(0, 4000) || "Social links have not been configured yet.");
+      const intro = await getInfoContent("socials");
+      const linkList = links.slice(0, 25).map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n");
+      const description = [intro, linkList].filter(Boolean).join("\n\n").slice(0, 4000);
+      const embed = overlandEmbed("Overland socials", description || "Social links have not been configured yet.");
       const rows: ActionRowBuilder<ButtonBuilder>[] = [];
       for (let n = 0; n < Math.min(links.length, 25); n += 5) {
         rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links.slice(n, n + 5).map((x) =>
