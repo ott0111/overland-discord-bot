@@ -1,5 +1,5 @@
 import { prisma, audit } from "../../lib/db.js";
-import { awardPoints, type TxClient } from "../../lib/points.js";
+import { awardPointsWithinDailyLimit, type TxClient } from "../../lib/points.js";
 import { hasPermission } from "../../lib/permissions.js";
 import { logger } from "../../lib/logger.js";
 
@@ -20,7 +20,7 @@ export type AchievementKey = (typeof ACHIEVEMENT_KEYS)[number];
  */
 async function awardAchievementPoints(tx: TxClient, memberId: string, key: string, overpoints: number, overcredits: number) {
   if (overpoints > 0) {
-    await awardPoints(
+    await awardPointsWithinDailyLimit(
       {
         memberId,
         currency: "OVERPOINTS",
@@ -34,7 +34,7 @@ async function awardAchievementPoints(tx: TxClient, memberId: string, key: strin
     );
   }
   if (overcredits > 0) {
-    await awardPoints(
+    await awardPointsWithinDailyLimit(
       {
         memberId,
         currency: "OVERCREDITS",

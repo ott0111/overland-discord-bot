@@ -10,13 +10,41 @@ export const INTERNAL_ROLES = ["Founder","Admin","Warden"] as const;
 export const PERMISSION_GROUPS = ["Owner","Executive","Administration","Moderation","Development","Support","Rewards Management"] as const;
 export const PERMISSIONS = [
   "team.view","team.manage","roles.assign","roles.manage","economy.adjust","economy.view",
-  "campaigns.manage","campaigns.review","referrals.view","rewards.manage","rewards.review",
+  "campaigns.manage","campaigns.review","community.manage","referrals.view","rewards.manage","rewards.review",
   "tickets.view","tickets.manage","moderation.action","moderation.view","config.manage",
   "x.manage","analytics.view","audit.view","achievements.manage",
 ] as const;
 export type PermissionKey = (typeof PERMISSIONS)[number];
+
+export const DEFAULT_GROUP_PERMISSIONS: Record<string, readonly PermissionKey[]> = {
+  Executive: [
+    "team.view", "roles.assign", "roles.manage", "economy.view", "economy.adjust",
+    "campaigns.manage", "campaigns.review", "community.manage", "referrals.view", "rewards.manage",
+    "rewards.review", "tickets.view", "tickets.manage", "moderation.view",
+    "analytics.view", "audit.view", "achievements.manage",
+  ],
+  Administration: [
+    "team.view", "roles.assign", "roles.manage", "economy.view", "campaigns.manage",
+    "campaigns.review", "community.manage", "referrals.view", "rewards.manage", "rewards.review",
+    "tickets.view", "tickets.manage", "moderation.view", "moderation.action",
+    "config.manage", "analytics.view", "audit.view", "achievements.manage", "x.manage",
+  ],
+  Moderation: [
+    "moderation.view", "moderation.action", "tickets.view", "tickets.manage", "audit.view",
+  ],
+  Development: [
+    "analytics.view", "audit.view",
+  ],
+  Support: [
+    "tickets.view", "tickets.manage",
+  ],
+  Rewards_Management: [
+    "economy.view", "rewards.manage", "rewards.review", "referrals.view",
+  ],
+};
+
 export const DEFAULT_POINT_VALUES = {
-  community: { dailyCheckin: 5, participation: 2, helpfulAnswer: 5, eventParticipation: 15, weeklyChallenge: 20, approvedContribution: 20 },
+  community: { dailyCheckin: 5, participation: 2, helpfulAnswer: 5, eventParticipation: 15, weeklyChallenge: 20, approvedContribution: 20, streakBonus: 10 },
   social: { xPost: 15, infographic: 25, educationalThread: 30, article: 30, campaignContribution: 20, video: 30 },
   referral: { verifiedReferral: 10, sevenDayActive: 10, comradeBonus: 5 },
   contribution: { graphic: 25, research: 30, article: 30, feedback: 15, initiative: 40, significantMin: 50, significantMax: 100 },

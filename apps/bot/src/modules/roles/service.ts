@@ -2,20 +2,42 @@ import type { Guild } from "discord.js";
 import { prisma, audit } from "../../lib/db.js";
 import { getConfig } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
+import { checkComradeConversion } from "../referrals/service.js";
 
 export async function grantRole(memberId: string, roleName: string, actorId: string, reason?: string) {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
-  if (!role) throw new Error(`Role not found: ${roleName}`);
+  if (!role) throw new Error("Role not found: " + roleName);
   if (role.isInternal) throw new Error("Internal roles are assigned only through Internal Team management, not this path");
-  if (role.requiresRoleId) {
-    const has = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId, roleId: role.requiresRoleId } } });
-    if (!has) throw new Error(`Role ${roleName} requires the prerequisite role first`);
+  let granted = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${memberId}))`;
+      if (role.requiresRoleId) {
+        const prerequisite = await tx.memberRole.findUnique({
+          where: { memberId_roleId: { memberId, roleId: role.requiresRoleId } },
+        });
+        if (!prerequisite) throw new Error("Role " + roleName + " requires the prerequisite role first");
+      }
+      const existing = await tx.memberRole.findUnique({
+        where: { memberId_roleId: { memberId, roleId: role.id } },
+      });
+      if (existing) return;
+      await tx.memberRole.create({
+        data: { memberId, roleId: role.id, grantedBy: actorId },
+      });
+      await tx.roleHistory.create({
+        data: { memberId, roleId: role.id, action: "GRANT", actorId, reason },
+      });
+      granted = true;
+    });
+  } catch (err) {
+    if (!(err && typeof err === "object" && "code" in err && err.code === "P2002")) throw err;
   }
-  await prisma.$transaction([
-    prisma.memberRole.upsert({ where: { memberId_roleId: { memberId, roleId: role.id } }, update: {}, create: { memberId, roleId: role.id, grantedBy: actorId } }),
-    prisma.roleHistory.create({ data: { memberId, roleId: role.id, action: "GRANT", actorId, reason } }),
-  ]);
-  await audit(actorId, "roles.grant", "Role", role.id, { memberId, roleName });
+
+  if (granted) {
+    await audit(actorId, "roles.grant", "Role", role.id, { memberId, roleName });
+  }
+  return { granted, duplicate: !granted };
 }
 
 /** Pure requirement check, unit tested. */
@@ -25,13 +47,56 @@ export function meetsRoleRequirements(memberRoleNames: string[], requiredRole: s
   return true;
 }
 
-export async function revokeRole(memberId: string, roleName: string, actorId: string, reason?: string) {
+export async function revokeRole(memberId: string, roleName: string, actorId: string, reason?: string): Promise<string[]> {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
-  if (!role) throw new Error(`Role not found: ${roleName}`);
-  await prisma.$transaction([
-    prisma.memberRole.deleteMany({ where: { memberId, roleId: role.id } }),
-    prisma.roleHistory.create({ data: { memberId, roleId: role.id, action: "REVOKE", actorId, reason } }),
-  ]);
+  if (!role) throw new Error("Role not found: " + roleName);
+  if (role.isInternal) throw new Error("Internal team positions are managed through Internal Team management");
+
+  const removedNames = await prisma.$transaction(async (tx) => {
+    // Serialize all role-ledger changes for this member so a prerequisite
+    // cannot be granted or removed while the dependency cascade is running.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${memberId}))`;
+
+    const allRoles = await tx.role.findMany({
+      select: { id: true, name: true, requiresRoleId: true, isInternal: true },
+    });
+    const revokedIds = new Set<string>([role.id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const candidate of allRoles) {
+        if (!candidate.isInternal && candidate.requiresRoleId && revokedIds.has(candidate.requiresRoleId) && !revokedIds.has(candidate.id)) {
+          revokedIds.add(candidate.id);
+          changed = true;
+        }
+      }
+    }
+
+    const held = await tx.memberRole.findMany({
+      where: { memberId, roleId: { in: [...revokedIds] } },
+      include: { role: true },
+    });
+    const removed: string[] = [];
+    for (const entry of held) {
+      const deleted = await tx.memberRole.deleteMany({
+        where: { memberId, roleId: entry.roleId },
+      });
+      if (deleted.count !== 1) continue;
+      await tx.roleHistory.create({
+        data: {
+          memberId,
+          roleId: entry.roleId,
+          action: "REVOKE",
+          actorId,
+          reason: reason ?? (entry.role.name === roleName ? "Role removed" : "Prerequisite " + roleName + " removed"),
+        },
+      });
+      removed.push(entry.role.name);
+    }
+    return removed;
+  });
+
+  return removedNames;
 }
 
 async function discordIdForMember(memberId: string): Promise<string | null> {
@@ -64,9 +129,11 @@ export async function assignRole(memberId: string, roleName: string, actorId: st
 
 /** Remove a community role from the DB and from Discord when possible. */
 export async function removeRole(memberId: string, roleName: string, actorId: string, reason?: string, guild?: Guild) {
-  await revokeRole(memberId, roleName, actorId, reason);
-  await syncDiscordRole(guild, memberId, roleName, false);
-  await audit(actorId, "roles.remove", "Role", roleName, { memberId, roleName });
+  const removedRoles = await revokeRole(memberId, roleName, actorId, reason);
+  for (const removedRole of removedRoles) {
+    await syncDiscordRole(guild, memberId, removedRole, false);
+  }
+  await audit(actorId, "roles.remove", "Role", roleName, { memberId, removedRoles });
 }
 
 export async function getMemberRoles(memberId: string) {
@@ -117,24 +184,56 @@ async function progressionConfig(): Promise<ProgressionThresholds> {
 export async function checkProgression(memberId: string, actorId: string, guild?: Guild): Promise<string[]> {
   const thresholds = await progressionConfig();
   const balance = await prisma.pointBalance.findUnique({ where: { memberId } });
-  const approved = await prisma.campaignSubmission.count({ where: { memberId, status: "APPROVED" } });
+  const creativeSubmissions = await prisma.campaignSubmission.count({
+    where: {
+      memberId,
+      status: "APPROVED",
+      category: { in: ["creative", "graphic_design", "infographic", "video", "article", "social_post"] },
+    },
+  });
+  const researchPoints = await prisma.campaignSubmission.aggregate({
+    where: {
+      memberId,
+      status: "APPROVED",
+      category: { in: ["research", "education", "industry_research", "educational_thread", "contribution_article"] },
+    },
+    _sum: { pointsAwarded: true },
+  });
   const granted: string[] = [];
-  const tryGrant = async (roleName: string, qualifies: boolean) => {
-    if (!qualifies) return;
+
+  const evaluate = async (roleName: string, qualifies: boolean) => {
     const role = await prisma.role.findUnique({ where: { name: roleName } });
-    if (!role) return;
-    const has = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId, roleId: role.id } } });
-    if (has) return;
-    try {
-      await assignRole(memberId, roleName, actorId, "Progression threshold reached", guild);
-      granted.push(roleName);
-    } catch {
-      // Prerequisite not met (for example Comrade needing Citizen): skip.
+    if (!role || role.isInternal) return;
+    const held = await prisma.memberRole.findUnique({
+      where: { memberId_roleId: { memberId, roleId: role.id } },
+    });
+
+    if (qualifies && !held) {
+      try {
+        await assignRole(memberId, roleName, actorId, "Progression threshold reached", guild);
+        granted.push(roleName);
+      } catch {
+        // Missing prerequisite or deleted Discord role; staff can review history.
+      }
+      return;
+    }
+
+    if (!qualifies && held) {
+      const latestGrant = await prisma.roleHistory.findFirst({
+        where: { memberId, roleId: role.id, action: "GRANT" },
+        orderBy: { createdAt: "desc" },
+      });
+      // Only automatically remove roles originally earned through progression.
+      // Staff-awarded recognition and manually configured roles are preserved.
+      if (latestGrant?.reason === "Progression threshold reached") {
+        await removeRole(memberId, roleName, actorId, "Progression requirement no longer met", guild);
+      }
     }
   };
-  await tryGrant("Socialite", (balance?.communityPoints ?? 0) >= thresholds.socialiteMinCommunityPoints);
-  await tryGrant("Creator", approved >= thresholds.creatorMinApprovedSubmissions);
-  await tryGrant("Intellect", (balance?.contributionPoints ?? 0) >= thresholds.intellectMinContributionPoints);
+
+  await evaluate("Socialite", (balance?.communityPoints ?? 0) >= thresholds.socialiteMinCommunityPoints);
+  await evaluate("Creator", creativeSubmissions >= thresholds.creatorMinApprovedSubmissions);
+  await evaluate("Intellect", (researchPoints._sum.pointsAwarded ?? 0) >= thresholds.intellectMinContributionPoints);
   return granted;
 }
 
@@ -142,8 +241,24 @@ export async function checkProgression(memberId: string, actorId: string, guild?
 export async function grantCitizenAfterVerification(memberId: string, actorId: string, guild?: Guild) {
   const member = await prisma.discordMember.findUnique({ where: { id: memberId } });
   if (!member) throw new Error("Member not found");
-  await prisma.discordMember.update({ where: { id: memberId }, data: { verifiedAt: new Date() } });
+  const updated = await prisma.discordMember.update({
+    where: { id: memberId },
+    data: { verifiedAt: new Date() },
+  });
   await assignRole(memberId, "Citizen", actorId, "Verification completed", guild);
+
+  // If X follow was verified before Discord verification, grant Comrade now
+  // that the Citizen prerequisite is satisfied.
+  if (updated.xFollowVerified) {
+    await assignRole(memberId, "Comrade", actorId, "Citizen and X follow requirements satisfied", guild);
+    const referral = await prisma.referral.findFirst({ where: { referredId: memberId, verified: true } });
+    if (referral) {
+      await checkComradeConversion(referral.id).catch((err) =>
+        audit(actorId, "referrals.comrade_bonus_failed", "Referral", referral.id, {
+          message: err instanceof Error ? err.message : String(err),
+        }));
+    }
+  }
 }
 
 /**
@@ -151,6 +266,9 @@ export async function grantCitizenAfterVerification(memberId: string, actorId: s
  * (DiscordMember.xFollowVerified, set by staff or a supported integration).
  */
 export async function grantComrade(memberId: string, actorId: string, guild?: Guild) {
+  if (!(await hasPermission(actorId, "roles.assign"))) {
+    throw new Error("Only authorized staff can verify X follows and grant Comrade");
+  }
   const member = await prisma.discordMember.findUnique({ where: { id: memberId } });
   if (!member) throw new Error("Member not found");
   if (!member.xFollowVerified) throw new Error("X follow has not been verified for this member");
@@ -161,15 +279,24 @@ export async function grantComrade(memberId: string, actorId: string, guild?: Gu
   });
   if (!hasCitizen) throw new Error("Comrade requires the Citizen role first");
   await assignRole(memberId, "Comrade", actorId, "X follow verified", guild);
+  const referral = await prisma.referral.findFirst({ where: { referredId: memberId, verified: true } });
+  if (referral) {
+    await checkComradeConversion(referral.id).catch((err) =>
+      audit(actorId, "referrals.comrade_bonus_failed", "Referral", referral.id, { message: err instanceof Error ? err.message : String(err) }));
+  }
 }
 
 /** Mark a member's X follow as verified (staff or supported integration). */
-export async function setXFollowVerified(memberId: string, actorId: string, verified: boolean) {
+export async function setXFollowVerified(memberId: string, actorId: string, verified: boolean, guild?: Guild) {
+  if (!(await hasPermission(actorId, "roles.assign"))) {
+    throw new Error("You do not have permission to verify X follows");
+  }
   const updated = await prisma.discordMember.update({
     where: { id: memberId },
     data: { xFollowVerified: verified, xFollowVerifiedAt: verified ? new Date() : null },
   });
   await audit(actorId, "roles.x_follow_verified", "DiscordMember", memberId, { verified });
+  if (!verified) await removeRole(memberId, "Comrade", actorId, "X follow verification removed", guild);
   return updated;
 }
 

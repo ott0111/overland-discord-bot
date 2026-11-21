@@ -1,6 +1,6 @@
 import type { Guild } from "discord.js";
 import { prisma, audit } from "../../lib/db.js";
-import { awardPoints } from "../../lib/points.js";
+import { awardPointsWithinDailyLimit } from "../../lib/points.js";
 import { getPointValues } from "../../lib/config.js";
 import { detectSelfReferral, detectReferralBurst } from "../../lib/antifraud.js";
 import { enqueue } from "../../lib/queue.js";
@@ -45,7 +45,7 @@ export async function verifyReferral(referralId: string) {
   if (referral.suspicious) throw new Error("Referral is flagged suspicious and needs staff review first");
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).verifiedReferral ?? 10;
-  await awardPoints({
+  await awardPointsWithinDailyLimit({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
     category: "referral",
@@ -90,7 +90,7 @@ export async function checkRetention7d(referralId: string, guild?: Guild) {
   if (!presentMember) return referral;
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).sevenDayActive ?? 10;
-  await awardPoints({
+  await awardPointsWithinDailyLimit({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
     category: "referral",
@@ -119,7 +119,7 @@ export async function checkComradeConversion(referralId: string) {
   if (!hasComrade) return referral;
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).comradeBonus ?? 5;
-  await awardPoints({
+  await awardPointsWithinDailyLimit({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
     category: "referral",

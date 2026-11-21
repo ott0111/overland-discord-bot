@@ -1,10 +1,11 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, audit } from "../../lib/db.js";
-import { awardPoints } from "../../lib/points.js";
+import { awardPointsWithinDailyLimit } from "../../lib/points.js";
 import { getPointValues } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
 import { checkAndGrant } from "../achievements/service.js";
 import { logger } from "../../lib/logger.js";
+import { checkProgression } from "../roles/service.js";
 
 export interface CreateCampaignInput {
   name: string;
@@ -19,6 +20,7 @@ export interface CreateCampaignInput {
 
 export interface SubmitWorkInput {
   content: string;
+  category?: "community" | "social" | "creative" | "research" | "education" | "social_post" | "infographic" | "educational_thread" | "article" | "campaign_contribution" | "video" | "graphic_design" | "industry_research" | "contribution_article" | "product_feedback" | "community_initiative" | "significant_contribution";
   linkUrl?: string | null;
   imageUrl?: string | null;
 }
@@ -110,6 +112,10 @@ export async function submitWork(memberId: string, campaignId: string, input: Su
   if (input.content.trim().length > 4000) throw new Error("Submission content is too long (4000 characters max)");
   if (input.linkUrl && !isValidUrl(input.linkUrl)) throw new Error("Submission link is not a valid URL");
   if (input.imageUrl && !isValidUrl(input.imageUrl)) throw new Error("Image link is not a valid URL");
+  const category = input.category ?? "social";
+  if (!["community", "social", "creative", "research", "education", "social_post", "infographic", "educational_thread", "article", "campaign_contribution", "video", "graphic_design", "industry_research", "contribution_article", "product_feedback", "community_initiative", "significant_contribution"].includes(category)) {
+    throw new Error("Submission category is not supported");
+  }
   const existing = await prisma.campaignSubmission.findFirst({
     where: { campaignId, memberId, status: "PENDING" },
   });
@@ -119,6 +125,7 @@ export async function submitWork(memberId: string, campaignId: string, input: Su
       campaignId,
       memberId,
       content: input.content.trim(),
+      category,
       linkUrl: input.linkUrl ?? null,
       imageUrl: input.imageUrl ?? null,
     },
@@ -161,9 +168,40 @@ export async function reviewSubmission(
     return { submission: rejected, awarded: null };
   }
   const values = await getPointValues();
-  const fallback = (values.social as unknown as Record<string, number>).campaignContribution ?? submission.campaign.pointReward;
-  const amount = pointsOverride ?? submission.campaign.pointReward ?? fallback;
-  if (amount < 0) throw new Error("Award amount must not be negative");
+  const category = submission.category || "social";
+  const socialValues = values.social as unknown as Record<string, number>;
+  const contributionValues = values.contribution as unknown as Record<string, number>;
+  const communityValues = values.community as unknown as Record<string, number>;
+  const defaults: Record<string, number> = {
+    community: communityValues.approvedContribution ?? 20,
+    social: socialValues.campaignContribution ?? 20,
+    social_post: socialValues.xPost ?? 15,
+    infographic: socialValues.infographic ?? 25,
+    educational_thread: socialValues.educationalThread ?? 30,
+    article: socialValues.article ?? 30,
+    campaign_contribution: socialValues.campaignContribution ?? 20,
+    video: socialValues.video ?? 30,
+    creative: contributionValues.graphic ?? 25,
+    graphic_design: contributionValues.graphic ?? 25,
+    research: contributionValues.research ?? 30,
+    industry_research: contributionValues.research ?? 30,
+    education: contributionValues.article ?? 30,
+    contribution_article: contributionValues.article ?? 30,
+    product_feedback: contributionValues.feedback ?? 15,
+    community_initiative: contributionValues.initiative ?? 40,
+    significant_contribution: contributionValues.significantMin ?? 50,
+  };
+  const amount = pointsOverride ?? (submission.campaign.pointReward > 0
+    ? submission.campaign.pointReward
+    : (defaults[category] ?? 20));
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new Error("Award amount must be a non-negative integer");
+  if (category === "significant_contribution" &&
+      (amount < (contributionValues.significantMin ?? 50) || amount > (contributionValues.significantMax ?? 100))) {
+    throw new Error("Significant contribution awards must stay within the configured minimum and maximum");
+  }
+  const socialCategories = ["social", "social_post", "infographic", "educational_thread", "article", "campaign_contribution", "video"];
+  const pointCategory = socialCategories.includes(category) ? "social" : category === "community" ? "community" : "contribution";
+  const transactionSource = pointCategory === "social" ? "SOCIAL_SUBMISSION" : "CONTRIBUTION";
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const transition = await tx.campaignSubmission.updateMany({
       where: { id: submissionId, status: "PENDING" },
@@ -179,13 +217,13 @@ export async function reviewSubmission(
     const updated = await tx.campaignSubmission.findUniqueOrThrow({ where: { id: submissionId } });
     let awarded: unknown = null;
     if (amount > 0) {
-      awarded = await awardPoints(
+      awarded = await awardPointsWithinDailyLimit(
         {
           memberId: submission.memberId,
           currency: "OVERPOINTS",
-          category: "social",
+          category: pointCategory,
           amount,
-          source: "SOCIAL_SUBMISSION",
+          source: transactionSource,
           reason: `Approved submission for campaign ${submission.campaign.name}`,
           actorId: staffDiscordId,
           idempotencyKey: `campaign-${submissionId}`,
@@ -201,8 +239,9 @@ export async function reviewSubmission(
   });
   try {
     await checkAndGrant(submission.memberId);
+    await checkProgression(submission.memberId, staffDiscordId);
   } catch (err) {
-    logger.warn({ err }, "Achievement check after campaign approval failed");
+    logger.warn({ err }, "Achievement or role progression check after campaign approval failed");
   }
   return result;
 }

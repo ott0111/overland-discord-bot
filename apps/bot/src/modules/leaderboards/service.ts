@@ -117,36 +117,62 @@ export async function getLeaderboard(
  */
 export async function snapshotLeaderboard(now = new Date()) {
   const categories: LeaderboardCategory[] = ["overall", "community", "social", "referrals", "contributions"];
-  const periods: Array<{ period: LeaderboardPeriod; key: string }> = [
-    { period: "MONTHLY", key: currentMonthKey(now) },
-    { period: "WEEKLY", key: currentWeekKey(now) },
+  const periods: Array<{ period: LeaderboardPeriod; key: string; start: Date }> = [
+    {
+      period: "MONTHLY",
+      key: currentMonthKey(now),
+      start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+    },
+    {
+      period: "WEEKLY",
+      key: currentWeekKey(now),
+      start: (() => {
+        const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+        const day = (start.getUTCDay() + 6) % 7;
+        start.setUTCDate(start.getUTCDate() - day);
+        return start;
+      })(),
+    },
   ];
+
   let written = 0;
-  for (const { period, key } of periods) {
-    for (const category of categories) {
-      const field = leaderboardField(category);
-      const balances = await prisma.pointBalance.findMany({
-        orderBy: { [field]: "desc" },
-        take: 100,
-        select: { memberId: true, [field]: true } as never,
-      });
-      await prisma.leaderboardSnapshot.deleteMany({ where: { period: period as never, category, periodKey: key } });
-      for (let idx = 0; idx < balances.length; idx++) {
-        const row = balances[idx] as unknown as Record<string, number | string>;
-        await prisma.leaderboardSnapshot.create({
-          data: {
-            period: period as never,
-            category,
-            periodKey: key,
-            memberId: row.memberId as string,
-            rank: idx + 1,
-            score: (row[field] as number) ?? 0,
+  await prisma.$transaction(async (tx) => {
+    for (const { period, key, start } of periods) {
+      for (const category of categories) {
+        const rows = await tx.pointTransaction.groupBy({
+          by: ["memberId"],
+          where: {
+            currency: "OVERPOINTS",
+            amount: { gt: 0 },
+            createdAt: { gte: start, lte: now },
+            ...(category === "overall" ? {} : { category }),
           },
+          _sum: { amount: true },
+          orderBy: { _sum: { amount: "desc" } },
+          take: 100,
         });
-        written += 1;
+
+        await tx.leaderboardSnapshot.deleteMany({
+          where: { period, category, periodKey: key },
+        });
+
+        if (rows.length > 0) {
+          await tx.leaderboardSnapshot.createMany({
+            data: rows.map((row, index) => ({
+              period,
+              category,
+              periodKey: key,
+              memberId: row.memberId,
+              rank: index + 1,
+              score: row._sum.amount ?? 0,
+            })),
+          });
+        }
+        written += rows.length;
       }
     }
-  }
+  });
+
   return { written, monthKey: currentMonthKey(now), weekKey: currentWeekKey(now) };
 }
 

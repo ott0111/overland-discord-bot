@@ -2,10 +2,10 @@ import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, Chan
 import { prisma, audit } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
-import { getInfoContent, getConfig, clearConfigCache } from "../lib/config.js";
-import { awardDailyCheckin } from "../modules/economy/service.js";
+import { getInfoContent, getConfig, clearConfigCache, setInfoContent } from "../lib/config.js";
+import { awardDailyCheckin, awardEvent, awardWeeklyChallenge, awardHelpful, awardApprovedContribution } from "../modules/economy/service.js";
 import { hasPermission } from "../lib/permissions.js";
-import { listActive, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
+import { listActive, listSubmissions, submissionHistory, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
 import { checkAndGrant, listMemberAchievements } from "../modules/achievements/service.js";
 import { listRewards, claimReward, approveClaim, rejectClaim, fulfillClaim } from "../modules/rewards/service.js";
 import { createTicketChannel, claimTicket, closeTicket, findTicketByChannel, formatTicketNumber } from "../modules/tickets/service.js";
@@ -14,7 +14,7 @@ import { announceManual, getXConfig } from "../modules/x-integration/service.js"
 import { getReferralStats } from "../modules/referrals/service.js";
 import { staffVerify, startVerification, completeVerification } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
-import { assignRole } from "../modules/roles/service.js";
+import { assignRole, removeRole, listSelfAssignable, getRoleHistory, staffAward, setXFollowVerified, grantComrade, checkProgression } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
 import { getModerationConfig, updateModerationConfig, lockdownOn, lockdownOff, isLockdownActive, kickMember, banMember, unbanMember, getModerationHistory } from "../modules/moderation/service.js";
 
@@ -50,7 +50,8 @@ function profileCmd(): Command {
       const roles = await prisma.memberRole.findMany({ where: { memberId: m.id }, include: { role: true } });
       const latestCheckin = await prisma.dailyCheckin.findFirst({ where: { memberId: m.id }, orderBy: { date: "desc" } });
       const achievements = await listMemberAchievements(m.id);
-      const e = overlandEmbed(`${target.username} profile`, `Joined the community and verified through Overland Core.`)
+      const joinedLabel = m.joinedAt ? m.joinedAt.toLocaleDateString("en-CA") : "Join date unavailable";
+      const e = overlandEmbed(`${target.username} profile`, "Joined Overland: " + joinedLabel)
         .setThumbnail(target.displayAvatarURL())
         .addFields(
           { name: "Overpoints", value: String(bal.overpoints), inline: true },
@@ -86,10 +87,11 @@ function dailyCmd(): Command {
       const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
       const prev = await prisma.dailyCheckin.findUnique({ where: { memberId_date: { memberId: m.id, date: yesterday } } });
       const streak = computeDailyStreak(prev?.date ?? null, today, prev?.streak ?? 0);
+      const award = await awardDailyCheckin(m.id, streak);
       await prisma.dailyCheckin.create({ data: { memberId: m.id, date: today, streak } });
-      await awardDailyCheckin(m.id, streak);
       const newlyGranted = await checkAndGrant(m.id).catch(() => [] as string[]);
-      await i.editReply({ embeds: [overlandEmbed("Daily check-in complete", `Streak: ${streak} day${streak === 1 ? "" : "s"}. You earned 5 Overpoints${streak % 7 === 0 ? " plus a 10 Overcredit streak bonus" : ""}.${newlyGranted.length ? ` Achievement unlocked: ${newlyGranted.join(", ")}.` : ""}`)] });
+      await checkProgression(m.id, i.user.id, i.guild ?? undefined).catch(() => []);
+      await i.editReply({ embeds: [overlandEmbed("Daily check-in complete", `Streak: ${streak} day${streak === 1 ? "" : "s"}. You earned ${award.amount} Overpoints${award.streakBonus > 0 ? " plus a " + award.streakBonus + " Overcredit streak bonus" : ""}.${newlyGranted.length ? ` Achievement unlocked: ${newlyGranted.join(", ")}.` : ""}`)] });
     },
   };
 }
@@ -152,7 +154,10 @@ function socialsCmd(): Command {
     data: new SlashCommandBuilder().setName("socials").setDescription("View Overland's configured social links"),
     execute: async (i) => {
       const links = await getSavedLinks();
-      const embed = overlandEmbed("Overland socials", links.slice(0, 25).map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n").slice(0, 4000) || "Social links have not been configured yet.");
+      const intro = await getInfoContent("socials");
+      const linkList = links.slice(0, 25).map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n");
+      const description = [intro, linkList].filter(Boolean).join("\n\n").slice(0, 4000);
+      const embed = overlandEmbed("Overland socials", description || "Social links have not been configured yet.");
       const rows: ActionRowBuilder<ButtonBuilder>[] = [];
       for (let n = 0; n < Math.min(links.length, 25); n += 5) {
         rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links.slice(n, n + 5).map((x) =>
@@ -165,7 +170,8 @@ function socialsCmd(): Command {
 function welcomeCmd(): Command {
   return {
     data: new SlashCommandBuilder().setName("welcome").setDescription("Configure the member welcome system")
-      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages")))
+      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages"))
+      .addBooleanOption((o) => o.setName("send_dm").setDescription("Also send a welcome DM")))
       .addSubcommand((s) => s.setName("preview").setDescription("Preview the current welcome message")),
     execute: async (i) => {
       const config = await getWelcomeSettings();
@@ -183,6 +189,7 @@ function welcomeCmd(): Command {
           title: i.options.getString("title") ?? config.title,
           message: i.options.getString("message") ?? config.message,
           enabled: i.options.getBoolean("enabled") ?? config.enabled,
+          sendDm: i.options.getBoolean("send_dm") ?? config.sendDm,
         });
         await i.editReply({ embeds: [overlandEmbed("Welcome system configured", "Channel: <#" + next.channelId + ">\nEnabled: " + (next.enabled ? "Yes" : "No") + "\nUse /welcome preview to check the message.")] });
       } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Welcome setup failed.")] }); }
@@ -190,17 +197,42 @@ function welcomeCmd(): Command {
   };
 }
 function setupCmd(): Command {
+  const infoPages = ["about", "links", "team", "roadmap", "updates", "faq", "opportunities", "socials"];
   return {
-    data: new SlashCommandBuilder().setName("setup").setDescription("View setup instructions for Overland Core")
-      .addStringOption((o) => o.setName("feature").setDescription("Feature to configure").setRequired(true).addChoices(
-        { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "links" },
+    data: new SlashCommandBuilder().setName("setup").setDescription("Configure Overland community information and systems")
+      .addStringOption((o) => o.setName("feature").setDescription("Feature or information page").setRequired(true).addChoices(
+        { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "social_links" },
         { name: "Tickets", value: "tickets" }, { name: "Verification", value: "verification" },
-        { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" })),
+        { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" },
+        { name: "About page", value: "about" }, { name: "Public team page", value: "team" },
+        { name: "Roadmap page", value: "roadmap" }, { name: "Updates page", value: "updates" },
+        { name: "FAQ page", value: "faq" }, { name: "Opportunities page", value: "opportunities" },
+        { name: "Socials information", value: "socials" }))
+      .addStringOption((o) => o.setName("content").setDescription("New public page content (leave empty to view)").setMaxLength(3500)),
     execute: async (i) => {
       const feature = i.options.getString("feature", true);
+      const content = i.options.getString("content");
+      if (infoPages.includes(feature)) {
+        if (content !== null) {
+          await i.deferReply({ ephemeral: true });
+          try {
+            await setInfoContent(i.user.id, feature, content);
+            await i.editReply({ embeds: [overlandEmbed("Information page updated", "The /" + feature + " page now uses the new content.")] });
+          } catch (err) {
+            await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Information update failed.")] });
+          }
+          return;
+        }
+        await replyInfo(i, feature, "Setup: " + feature);
+        return;
+      }
+      if (content !== null) {
+        await i.reply({ ephemeral: true, embeds: [errorEmbed("The content option is only available for public information pages.")] });
+        return;
+      }
       const instructions: Record<string, string> = {
         welcome: "Run /welcome setup and choose a channel, title and message. Use {user} and {server} placeholders. Preview with /welcome preview.",
-        links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
+        social_links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
         tickets: "Run /ticket-setup to set the staff role and private ticket category.",
         verification: "Run /verification-setup to configure account age, CAPTCHA and avatar requirements. Configure the Citizen role in the dashboard.",
         security: "Use /security status to inspect protections and /security lockdown to restrict server messaging during an incident.",
@@ -440,6 +472,130 @@ function xSetupCmd(): Command {
 
 export const commands: Command[] = [
   profileCmd(), dailyCmd(), leaderboardCmd(),
+  { data: new SlashCommandBuilder().setName("poll").setDescription("Create an Overland community poll").addStringOption((o) => o.setName("question").setDescription("Poll question").setRequired(true).setMaxLength(300)).addStringOption((o) => o.setName("options").setDescription("2 to 10 answers separated with |").setRequired(true).setMaxLength(900)).addIntegerOption((o) => o.setName("hours").setDescription("Poll duration in hours").setMinValue(1).setMaxValue(168)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    const question = i.options.getString("question", true).trim();
+    const answers = i.options.getString("options", true).split("|").map((x) => x.trim()).filter(Boolean);
+    if (answers.length < 2 || answers.length > 10 || answers.some((x) => x.length > 55)) {
+      await i.reply({ ephemeral: true, embeds: [errorEmbed("Provide 2 to 10 answers, separated by |. Each answer must be 55 characters or fewer.")] });
+      return;
+    }
+    if (!i.channel || !("send" in i.channel)) {
+      await i.reply({ ephemeral: true, embeds: [errorEmbed("This command must be used in a text channel.")] });
+      return;
+    }
+    await (i.channel as import("discord.js").TextChannel).send({
+      poll: {
+        question: { text: question },
+        answers: answers.map((answer) => ({ poll_media: { text: answer } })),
+        duration: i.options.getInteger("hours") ?? 24,
+        allow_multiselect: false,
+      },
+    } as never);
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Poll published", "Your community poll is now live.")] });
+    await audit(i.user.id, "community.poll_create", "DiscordChannel", i.channelId, { question, answers });
+  } },
+  { data: new SlashCommandBuilder().setName("spotlight").setDescription("View the current Overland member spotlight"), execute: async (i) => {
+    const spotlight = await getConfig<{ period?: string; memberId?: string; username?: string; note?: string; awardedAt?: string }>("spotlight", {});
+    if (!spotlight.memberId) {
+      await i.reply({ embeds: [overlandEmbed("Overland spotlight", "No member spotlight has been published yet.")] });
+      return;
+    }
+    const period = spotlight.period === "monthly" ? "Member of the Month" : "Weekly Spotlight";
+    await i.reply({ embeds: [overlandEmbed(period, "**" + (spotlight.username ?? "Community member") + "**" + (spotlight.note ? "\n\n" + spotlight.note : "") + "\n\nRecognized by the Overland team.").setFooter({ text: spotlight.awardedAt ? "Published " + new Date(spotlight.awardedAt).toLocaleDateString() : "Overland Finance" })] });
+  } },
+  { data: new SlashCommandBuilder().setName("spotlight-set").setDescription("Staff: publish a weekly spotlight or Member of the Month").addUserOption((o) => o.setName("member").setDescription("Member to recognize").setRequired(true)).addStringOption((o) => o.setName("period").setDescription("Recognition period").setRequired(true).addChoices({ name: "Weekly Spotlight", value: "weekly" }, { name: "Member of the Month", value: "monthly" })).addStringOption((o) => o.setName("note").setDescription("Why they are being recognized").setMaxLength(800)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    const target = i.options.getUser("member", true);
+    const period = i.options.getString("period", true);
+    const spotlight = { period, memberId: target.id, username: target.username, note: i.options.getString("note") ?? "", awardedAt: new Date().toISOString() };
+    await prisma.botConfiguration.upsert({
+      where: { key: "spotlight" },
+      update: { value: spotlight as never, updatedBy: i.user.id },
+      create: { key: "spotlight", value: spotlight as never, updatedBy: i.user.id },
+    });
+    await audit(i.user.id, "community.spotlight_set", "DiscordMember", target.id, spotlight);
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Spotlight published", target.username + " is now featured as " + (period === "monthly" ? "Member of the Month." : "Weekly Spotlight."))] });
+  } },
+  { data: new SlashCommandBuilder().setName("event-award").setDescription("Staff: record a member's attendance at a community event").addUserOption((o) => o.setName("member").setDescription("Attending member").setRequired(true)).addStringOption((o) => o.setName("event_id").setDescription("Unique event name or ID").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const result = await awardEvent(member.id, i.options.getString("event_id", true), i.user.id);
+      await checkProgression(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(result.duplicate ? "Attendance already recorded" : "Event attendance recorded", target.username + (result.duplicate ? " already received this event reward." : " received the configured event attendance reward."))] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Event award failed.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("challenge-award").setDescription("Staff: award a weekly challenge completion").addUserOption((o) => o.setName("member").setDescription("Member who completed the challenge").setRequired(true)).addStringOption((o) => o.setName("week_key").setDescription("Unique week key, for example 2026-W47").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const result = await awardWeeklyChallenge(member.id, i.options.getString("week_key", true), i.user.id);
+      await checkProgression(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(result.duplicate ? "Challenge already recorded" : "Challenge completed", target.username + (result.duplicate ? " already received this week's challenge reward." : " received the configured weekly challenge reward."))] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Challenge award failed.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("helpful-award").setDescription("Staff: recognize a helpful community answer").addUserOption((o) => o.setName("member").setDescription("Member who helped").setRequired(true)).addStringOption((o) => o.setName("message_id").setDescription("Unique Discord message ID").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const result = await awardHelpful(member.id, i.options.getString("message_id", true), i.user.id);
+      await checkProgression(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(result.duplicate ? "Answer already rewarded" : "Helpful answer recognized", target.username + (result.duplicate ? " already received points for that message." : " received the configured helpful-answer reward."))] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Helpful answer award failed.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("contribution-award").setDescription("Staff: approve a community contribution and award points").addUserOption((o) => o.setName("member").setDescription("Contributor").setRequired(true)).addStringOption((o) => o.setName("contribution_id").setDescription("Unique contribution reference").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "community.manage"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const result = await awardApprovedContribution(member.id, i.options.getString("contribution_id", true), i.user.id);
+      await checkProgression(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(result.duplicate ? "Contribution already rewarded" : "Contribution approved", target.username + (result.duplicate ? " already received points for this contribution." : " received the configured community contribution reward."))] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Contribution award failed.")] });
+    }
+  } },
+  simpleCmd("analytics", "View Overland community analytics", async (i) => {
+    if (!(await requirePerm(i, "analytics.view"))) return;
+    await i.deferReply({ ephemeral: true });
+    const [members, verified, suspicious, balances, submissions, referrals, pendingClaims, posts] = await Promise.all([
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "" } }),
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "", verifiedAt: { not: null } } }),
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "", isSuspicious: true } }),
+      prisma.pointBalance.aggregate({ _sum: { overpoints: true, overcredits: true } }),
+      prisma.campaignSubmission.count({ where: { status: "APPROVED" } }),
+      prisma.referral.count({ where: { verified: true } }),
+      prisma.rewardClaim.count({ where: { status: "PENDING" } }),
+      prisma.xPost.count(),
+    ]);
+    const embed = overlandEmbed("Overland community analytics", "A live overview of the connected community.")
+      .addFields(
+        { name: "Members", value: members.toLocaleString(), inline: true },
+        { name: "Verified Citizens", value: verified.toLocaleString(), inline: true },
+        { name: "Flagged accounts", value: suspicious.toLocaleString(), inline: true },
+        { name: "Lifetime Overpoints", value: (balances._sum.overpoints ?? 0).toLocaleString(), inline: true },
+        { name: "Overcredits in circulation", value: (balances._sum.overcredits ?? 0).toLocaleString(), inline: true },
+        { name: "Approved submissions", value: submissions.toLocaleString(), inline: true },
+        { name: "Verified referrals", value: referrals.toLocaleString(), inline: true },
+        { name: "Pending reward claims", value: pendingClaims.toLocaleString(), inline: true },
+        { name: "X posts tracked", value: posts.toLocaleString(), inline: true },
+      );
+    await i.editReply({ embeds: [embed] });
+  }),
   simpleCmd("about", "About Overland Finance", (i) => replyInfo(i, "about", "About Overland Finance")),
   simpleCmd("links", "Official Overland links", (i) => replyInfo(i, "links", "Official links")),
   simpleCmd("team", "Meet the Overland team", (i) => replyInfo(i, "team", "Team")),
@@ -449,13 +605,50 @@ export const commands: Command[] = [
   simpleCmd("opportunities", "Open opportunities", (i) => replyInfo(i, "opportunities", "Opportunities")),
   socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(), kickCmd(), banCmd(), unbanCmd(), modHistoryCmd(), purgeCmd(), ticketSetupCmd(), verificationSetupCmd(), xSetupCmd(),
   { data: new SlashCommandBuilder().setName("help").setDescription("List Overland Core commands"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Overland Core commands", commands.map((c: Command) => `/${c.data.name} - ${c.data.description}`).join("\n"))] }); } },
-  { data: new SlashCommandBuilder().setName("invite").setDescription("Get your personal referral invite link"), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("invite").setDescription("Get your persistent personal referral invite link"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
-    await ensureMember(i.user.id, i.user.username);
+    const member = await ensureMember(i.user.id, i.user.username);
     const guild = i.guild;
     if (!guild) { await i.editReply("Use this in the server."); return; }
-    const invite = await guild.invites.create(i.channelId ?? guild.systemChannelId ?? guild.id, { maxAge: 0, maxUses: 0, unique: true, reason: `Referral invite for ${i.user.username}` }).catch(() => null);
-    await i.editReply({ embeds: [overlandEmbed("Your referral invite", invite ? `Share this link: https://discord.gg/${invite.code}\nNew members who join and verify earn you referral points.` : "Invite creation failed. Ask staff to check bot permissions.")] });
+
+    const invites = await guild.invites.fetch().catch(() => null);
+    if (!invites) {
+      await i.editReply({ embeds: [errorEmbed("I cannot read server invites. Staff need to grant Manage Server or Manage Guild invite access.")] });
+      return;
+    }
+
+    const stored = await prisma.referralInvite.findFirst({
+      where: { memberId: member.id, revokedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    const existing = stored ? invites.get(stored.inviteCode) : null;
+    if (existing) {
+      await i.editReply({ embeds: [overlandEmbed("Your referral invite", "Share your personal invite link:\n" + existing.url + "\n\nVerified joins through this link count toward your referral progress.")] });
+      return;
+    }
+
+    if (stored) {
+      await prisma.referralInvite.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+    }
+
+    const channelId = i.channelId ?? guild.systemChannelId;
+    if (!channelId) {
+      await i.editReply({ embeds: [errorEmbed("No channel is available to create an invite.")] });
+      return;
+    }
+    const invite = await guild.invites.create(channelId, {
+      maxAge: 0,
+      maxUses: 0,
+      unique: true,
+      reason: "Persistent Overland referral invite for " + i.user.username,
+    }).catch(() => null);
+    if (!invite) {
+      await i.editReply({ embeds: [errorEmbed("Invite creation failed. Ask staff to check the bot's invite permissions.")] });
+      return;
+    }
+
+    await prisma.referralInvite.create({ data: { memberId: member.id, inviteCode: invite.code } });
+    await i.editReply({ embeds: [overlandEmbed("Your referral invite", "Share your personal invite link:\n" + invite.url + "\n\nVerified joins through this link count toward your referral progress.")] });
   } },
   { data: new SlashCommandBuilder().setName("referrals").setDescription("View your referral stats"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
@@ -472,13 +665,41 @@ export const commands: Command[] = [
     await i.deferReply();
     const c = await prisma.campaign.findUnique({ where: { id: i.options.getString("campaign", true) } });
     if (!c) { await i.editReply({ embeds: [errorEmbed("Campaign not found.")] }); return; }
-    await i.editReply({ embeds: [overlandEmbed(c.name, `${c.description}\n\nObjectives: ${c.objectives ?? "See description."}\nReward: ${c.pointReward} points\nEnds: ${c.endsAt.toISOString().slice(0, 10)}\nRequirements: ${c.submissionRequirements ?? "None listed."}`)] });
+    await i.editReply({ embeds: [overlandEmbed(c.name, `${c.description}\n\nObjectives: ${c.objectives ?? "See description."}\nTasks: ${c.tasks ? JSON.stringify(c.tasks).slice(0, 800) : "See description."}\nReward: ${c.pointReward} points\nStarts: ${c.startsAt.toISOString().slice(0, 10)}\nEnds: ${c.endsAt.toISOString().slice(0, 10)}\nRequirements: ${c.submissionRequirements ?? "None listed."}`)] });
   } },
-  { data: new SlashCommandBuilder().setName("submit").setDescription("Submit work to a campaign").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)).addStringOption((o) => o.setName("content").setDescription("Describe your submission").setRequired(true)).addStringOption((o) => o.setName("link").setDescription("Link to your work")), execute: async (i) => {
+  simpleCmd("my-submissions", "View your campaign submission history", async (i) => {
+    await i.deferReply({ ephemeral: true });
+    const member = await ensureMember(i.user.id, i.user.username);
+    const history = await submissionHistory(member.id, 15);
+    const lines = history.map((entry) =>
+      "**" + entry.campaign.name + "** · " + entry.status +
+      " · " + entry.createdAt.toLocaleDateString() +
+      (entry.pointsAwarded ? " · " + entry.pointsAwarded + " Overpoints" : "") +
+      (entry.feedback ? "\nStaff feedback: " + entry.feedback.slice(0, 180) : "")
+    );
+    await i.editReply({ embeds: [overlandEmbed("Your campaign submissions", lines.join("\n\n").slice(0, 3900) || "You have not submitted work to a campaign yet.")] });
+  }),
+  { data: new SlashCommandBuilder().setName("campaign-gallery").setDescription("View approved community campaign submissions").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)), execute: async (i) => {
+    await i.deferReply();
+    try {
+      const submissions = await listSubmissions(i.options.getString("campaign", true), "APPROVED");
+      const visible = submissions.slice(0, 10);
+      const description = visible.map((submission) => {
+        const memberName = submission.member.user.username;
+        const link = submission.linkUrl ? "\n[View contribution](" + submission.linkUrl + ")" : "";
+        const image = submission.imageUrl ? "\n[Supporting image](" + submission.imageUrl + ")" : "";
+        return "**" + memberName + "** · " + submission.category + "\n" + submission.content.slice(0, 220) + link + image;
+      }).join("\n\n");
+      await i.editReply({ embeds: [overlandEmbed("Approved campaign contributions", description || "No approved submissions are public for this campaign yet.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not load approved submissions.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("submit").setDescription("Submit work to a campaign").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)).addStringOption((o) => o.setName("content").setDescription("Describe your submission").setRequired(true)).addStringOption((o) => o.setName("category").setDescription("Type of contribution").addChoices({ name: "Community contribution", value: "community" }, { name: "Original X post", value: "social_post" }, { name: "Infographic", value: "infographic" }, { name: "Educational thread", value: "educational_thread" }, { name: "Article", value: "article" }, { name: "Campaign contribution", value: "campaign_contribution" }, { name: "Video", value: "video" }, { name: "Graphic or design", value: "graphic_design" }, { name: "Industry research", value: "industry_research" }, { name: "Contribution article", value: "contribution_article" }, { name: "Product feedback", value: "product_feedback" }, { name: "Community initiative", value: "community_initiative" }, { name: "Significant contribution", value: "significant_contribution" })).addStringOption((o) => o.setName("link").setDescription("Link to your work")).addStringOption((o) => o.setName("image_url").setDescription("HTTPS image URL supporting your submission")), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
     const m = await ensureMember(i.user.id, i.user.username);
     try {
-      const { duplicate, submission } = await submitWork(m.id, i.options.getString("campaign", true), { content: i.options.getString("content", true), linkUrl: i.options.getString("link") });
+      const { duplicate, submission } = await submitWork(m.id, i.options.getString("campaign", true), { content: i.options.getString("content", true), category: (i.options.getString("category") ?? "campaign_contribution") as "community" | "social" | "creative" | "research" | "education" | "social_post" | "infographic" | "educational_thread" | "article" | "campaign_contribution" | "video" | "graphic_design" | "industry_research" | "contribution_article" | "product_feedback" | "community_initiative" | "significant_contribution", linkUrl: i.options.getString("link"), imageUrl: i.options.getString("image_url") });
       await i.editReply({ embeds: [overlandEmbed(duplicate ? "Submission already pending" : "Submission received", duplicate ? `You already have a pending submission (${submission.id}) for this campaign.` : `Submission ${submission.id} is pending staff review. You will be notified when it is reviewed.`)] });
     } catch (err) {
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Submission failed.")] });
@@ -494,10 +715,42 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Review failed.")] });
     }
   } },
-  { data: new SlashCommandBuilder().setName("rewards").setDescription("Browse the rewards marketplace"), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("rewards").setDescription("Browse the Overland rewards marketplace").addIntegerOption((o) => o.setName("page").setDescription("Marketplace page").setMinValue(1)), execute: async (i) => {
     await i.deferReply();
     const list = await listRewards(true);
-    await i.editReply({ embeds: [overlandEmbed("Rewards marketplace", list.map((r: { name: string; costOvercredits: number; stock: number | null; id: string }) => `${r.name} - ${r.costOvercredits} Overcredits${r.stock !== null ? ` (stock: ${r.stock})` : ""} (id: ${r.id})`).join("\n") || "No rewards available right now.")] });
+    const pageSize = 10;
+    const page = i.options.getInteger("page") ?? 1;
+    const pageCount = Math.max(1, Math.ceil(list.length / pageSize));
+    const pageItems = list.slice((page - 1) * pageSize, page * pageSize);
+    if (pageItems.length === 0) {
+      await i.editReply({ embeds: [overlandEmbed("Rewards marketplace", "No rewards are available on that page. There are " + list.length + " active rewards.")] });
+      return;
+    }
+
+    const embeds = pageItems.map((reward) => {
+      const embed = overlandEmbed(reward.name, reward.description)
+        .addFields(
+          { name: "Price", value: reward.costOvercredits.toLocaleString() + " Overcredits", inline: true },
+          { name: "Availability", value: reward.stock === null ? "Unlimited" : reward.stock.toLocaleString() + " remaining", inline: true },
+        );
+      if (reward.eligibility) embed.addFields({ name: "Eligibility", value: reward.eligibility.slice(0, 1024) });
+      if (reward.imageUrl) embed.setImage(reward.imageUrl);
+      embed.setFooter({ text: "Page " + page + " of " + pageCount + " · claims require staff approval" });
+      return embed;
+    });
+
+    const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+    for (let offset = 0; offset < pageItems.length; offset += 5) {
+      rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(
+        ...pageItems.slice(offset, offset + 5).map((reward) =>
+          new ButtonBuilder()
+            .setCustomId("overland:reward:claim:" + reward.id)
+            .setLabel(("Claim " + reward.name).slice(0, 80))
+            .setStyle(ButtonStyle.Success)
+        )
+      ));
+    }
+    await i.editReply({ embeds, components: rows });
   } },
   { data: new SlashCommandBuilder().setName("claim").setDescription("Claim a reward with Overcredits").addStringOption((o) => o.setName("reward").setDescription("Reward ID").setRequired(true)), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
@@ -524,6 +777,18 @@ export const commands: Command[] = [
     } catch (err) {
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Claim update failed.")] });
     }
+  } },
+  { data: new SlashCommandBuilder().setName("verification-panel").setDescription("Staff: publish the interactive Citizen verification panel").addChannelOption((o) => o.setName("channel").setDescription("Channel for the verification panel").setRequired(true).addChannelTypes(ChannelType.GuildText)), execute: async (i) => {
+    if (!(await requirePerm(i, "config.manage"))) return;
+    const channel = i.options.getChannel("channel", true) as import("discord.js").TextChannel;
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("overland:verify:start").setLabel("Verify account").setStyle(ButtonStyle.Success)
+    );
+    await channel.send({
+      embeds: [overlandEmbed("Welcome to Overland Finance", "Complete verification to receive the **Citizen** role and unlock the community.\n\nNew accounts may be asked to complete a short challenge. One verification per member.")],
+      components: [row],
+    });
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification panel published", "The onboarding panel is now live in " + channel + ".")] });
   } },
   { data: new SlashCommandBuilder().setName("verify").setDescription("Start Discord verification"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
@@ -585,16 +850,74 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Timeout failed.")] });
     }
   } },
-  { data: new SlashCommandBuilder().setName("grant-role").setDescription("Staff: grant a community role to a member").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addStringOption((o) => o.setName("role").setDescription("Role name, for example Pioneer").setRequired(true)).addStringOption((o) => o.setName("reason").setDescription("Reason")), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("grant-role").setDescription("Staff: award Pioneer or Luminary recognition").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addStringOption((o) => o.setName("role").setDescription("Recognition role").setRequired(true).addChoices({ name: "Pioneer", value: "Pioneer" }, { name: "Luminary", value: "Luminary" })).addStringOption((o) => o.setName("reason").setDescription("Reason")), execute: async (i) => {
     if (!(await requirePerm(i, "roles.assign"))) return;
     await i.deferReply({ ephemeral: true });
     try {
       const target = i.options.getUser("member", true);
       const m = await ensureMember(target.id, target.username);
-      await assignRole(m.id, i.options.getString("role", true), i.user.id, i.options.getString("reason") ?? undefined, i.guild ?? undefined);
-      await i.editReply({ embeds: [overlandEmbed("Role granted", `${i.options.getString("role", true)} granted to ${target.username}.`)] });
+      const roleName = i.options.getString("role", true);
+      await staffAward(m.id, roleName, i.user.id, i.options.getString("reason") ?? undefined, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed("Recognition awarded", roleName + " granted to " + target.username + ".")] });
     } catch (err) {
-      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Role grant failed.")] });
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Role award failed.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("interests").setDescription("View self-assignable community interest roles"), execute: async (i) => {
+    const roles = await listSelfAssignable();
+    const text = roles.map((role) => "• **" + role.name + "**" + (role.description ? " - " + role.description : "")).join("\n");
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Community interests", text ? text + "\n\nUse /interest to add or remove an interest role." : "No interest roles are currently available.")] });
+  } },
+  { data: new SlashCommandBuilder().setName("interest").setDescription("Add or remove one of your interest roles").addStringOption((o) => o.setName("role").setDescription("Exact interest role name").setRequired(true)), execute: async (i) => {
+    await i.deferReply({ ephemeral: true });
+    try {
+      const roleName = i.options.getString("role", true);
+      const role = await prisma.role.findUnique({ where: { name: roleName } });
+      if (!role || !role.isSelfAssignable || role.isInternal) {
+        await i.editReply({ embeds: [errorEmbed("That role is not available for self-assignment. Use /interests to see available roles.")] });
+        return;
+      }
+      const member = await ensureMember(i.user.id, i.user.username);
+      const existing = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId: member.id, roleId: role.id } } });
+      if (existing) {
+        await removeRole(member.id, role.name, i.user.id, "Member removed their interest role", i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Interest role removed", "You no longer have the " + role.name + " role.")] });
+      } else {
+        await assignRole(member.id, role.name, i.user.id, "Member self-assigned interest role", i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Interest role added", "You now have the " + role.name + " role.")] });
+      }
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not update your interest role.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("role-history").setDescription("Staff: view a member's role history").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "audit.view"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const history = await getRoleHistory(member.id, 15);
+      const lines = history.map((entry) => {
+        const when = entry.createdAt.toISOString().slice(0, 16).replace("T", " ");
+        return when + " • " + entry.action + " • " + entry.role.name + (entry.reason ? " • " + entry.reason : "");
+      });
+      await i.editReply({ embeds: [overlandEmbed("Role history: " + target.username, lines.join("\n").slice(0, 3900) || "No role history found.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not load role history.")] });
+    }
+  } },
+  { data: new SlashCommandBuilder().setName("comrade-verify").setDescription("Staff: verify an X follow and grant or revoke Comrade").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)).addBooleanOption((o) => o.setName("following").setDescription("Whether the official X follow is verified").setRequired(true)), execute: async (i) => {
+    if (!(await requirePerm(i, "roles.assign"))) return;
+    await i.deferReply({ ephemeral: true });
+    try {
+      const target = i.options.getUser("member", true);
+      const member = await ensureMember(target.id, target.username);
+      const following = i.options.getBoolean("following", true);
+      await setXFollowVerified(member.id, i.user.id, following, i.guild ?? undefined);
+      if (following) await grantComrade(member.id, i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed(following ? "Comrade verification complete" : "Comrade eligibility removed", following ? target.username + " has been verified as following Overland on X and granted Comrade." : target.username + " no longer meets the Comrade X-follow requirement.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Comrade verification failed.")] });
     }
   } },
   { data: new SlashCommandBuilder().setName("ticket").setDescription("Open a support ticket").addStringOption((o) => o.setName("category").setDescription("Category").setRequired(true).addChoices(...["General Inquiry", "Partnerships", "Business Development", "Opportunities", "Technical Support", "Other"].map((c) => ({ name: c, value: c })))).addStringOption((o) => o.setName("topic").setDescription("What do you need help with?").setRequired(true)), execute: async (i) => {

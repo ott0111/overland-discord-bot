@@ -5,6 +5,7 @@ import { hasPermission } from "../../lib/permissions.js";
 import { grantCitizenAfterVerification } from "../roles/service.js";
 import { grantAchievement, checkAndGrant } from "../achievements/service.js";
 import { logger } from "../../lib/logger.js";
+import { verifyReferral } from "../referrals/service.js";
 
 export interface VerificationCheck { passed: boolean; reasons: string[]; }
 
@@ -145,6 +146,11 @@ export async function completeVerification(
   const check = verificationCheck(accountAgeDays, config.minAccountAgeDays, hasAvatar, captchaPassed, config.requireAvatar);
   if (!check.passed) throw new Error(`Verification failed: ${check.reasons.join("; ")}`);
   await grantCitizenAfterVerification(memberId, actorId, guild);
+  const referral = await prisma.referral.findFirst({ where: { referredId: memberId } });
+  if (referral) {
+    await verifyReferral(referral.id).catch((err) =>
+      logger.warn({ err, referralId: referral.id }, "Referral verification after Citizen grant failed"));
+  }
   try {
     await grantAchievement(memberId, "first-verification", actorId);
   } catch (err) {
@@ -168,6 +174,11 @@ export async function staffVerify(memberDiscordId: string, staffDiscordId: strin
   const member = await prisma.discordMember.findUnique({ where: { userId: user.id } });
   if (!member) throw new Error("Member record not found");
   await grantCitizenAfterVerification(member.id, staffDiscordId, guild);
+  const referral = await prisma.referral.findFirst({ where: { referredId: member.id } });
+  if (referral) {
+    await verifyReferral(referral.id).catch((err) =>
+      logger.warn({ err, referralId: referral.id }, "Referral verification after staff Citizen grant failed"));
+  }
   try {
     await checkAndGrant(member.id);
   } catch (err) {

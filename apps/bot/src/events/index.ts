@@ -1,9 +1,10 @@
-import { Events, type Client, type GuildMember, type Message, type Invite } from "discord.js";
+import { Events, type Client, type GuildMember, type PartialGuildMember, type Message, type Invite } from "discord.js";
 import { prisma, audit } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { overlandEmbed } from "../lib/embeds.js";
 import { hashMessage } from "../lib/antifraud.js";
-import { awardPoints } from "../lib/points.js";
+import { awardParticipation } from "../modules/economy/service.js";
+import { checkProgression } from "../modules/roles/service.js";
 import { getModerationConfig, checkMessage } from "../modules/moderation/service.js";
 import { getWelcomeSettings } from "../modules/settings/service.js";
 import { recordJoin } from "../modules/referrals/service.js";
@@ -58,36 +59,104 @@ export function registerEvents(client: Client): void {
         const used = currentInvites.find((invite) =>
           (invite.uses ?? 0) > (inviteUses.get(inviteCacheKey(member.guild.id, invite.code)) ?? 0));
         for (const invite of currentInvites.values()) inviteUses.set(inviteCacheKey(member.guild.id, invite.code), invite.uses ?? 0);
-        if (used?.inviter && used.inviter.id !== member.id) {
-          const inviterUser = await prisma.user.upsert({
-            where: { discordId: used.inviter.id },
-            update: { username: used.inviter.username },
-            create: { discordId: used.inviter.id, username: used.inviter.username },
+        if (used) {
+          // Bot-created invite links have the bot as their Discord inviter,
+          // so resolve the actual member owner from our persisted invite map.
+          const ownedInvite = await prisma.referralInvite.findUnique({
+            where: { inviteCode: used.code },
+            include: { member: { include: { user: true } } },
           });
-          await prisma.discordMember.upsert({
-            where: { userId: inviterUser.id },
-            update: {},
-            create: { userId: inviterUser.id, guildId: member.guild.id },
-          });
-          await recordJoin(used.inviter.id, member.id, used.code).catch((err) =>
-            logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
+          const referrerDiscordId = ownedInvite?.member.user.discordId ??
+            (used.inviter && used.inviter.id !== client.user?.id ? used.inviter.id : null);
+
+          if (referrerDiscordId && referrerDiscordId !== member.id) {
+            const inviterUser = await prisma.user.upsert({
+              where: { discordId: referrerDiscordId },
+              update: { username: ownedInvite?.member.user.username ?? used.inviter?.username ?? "Unknown" },
+              create: { discordId: referrerDiscordId, username: ownedInvite?.member.user.username ?? used.inviter?.username ?? "Unknown" },
+            });
+            await prisma.discordMember.upsert({
+              where: { userId: inviterUser.id },
+              update: {},
+              create: { userId: inviterUser.id, guildId: member.guild.id },
+            });
+            await recordJoin(referrerDiscordId, member.id, used.code).catch((err) =>
+              logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
+          }
         }
       }
 
       const welcome = await getWelcomeSettings();
-      if (welcome.enabled && welcome.channelId) {
-        const channel = await member.guild.channels.fetch(welcome.channelId).catch(() => null);
+      if (welcome.enabled) {
+        const channel = welcome.channelId
+          ? await member.guild.channels.fetch(welcome.channelId).catch(() => null)
+          : null;
+        const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
+        const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
+        const welcomeEmbed = overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL());
         if (channel?.isTextBased() && "send" in channel) {
-          const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
-          const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
-          await (channel as import("discord.js").TextChannel).send({
-            embeds: [overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL())],
-          });
+          await (channel as import("discord.js").TextChannel).send({ embeds: [welcomeEmbed] });
+        }
+        if (welcome.sendDm) {
+          await member.send({ embeds: [welcomeEmbed] }).catch((err) =>
+            logger.debug({ err, memberId: member.id }, "Welcome DM could not be delivered"));
         }
       }
       await audit(null, "member.join", "DiscordMember", member.id, { accountAgeDays: Math.round(accountAgeDays) });
     } catch (err) {
       logger.error({ err }, "GuildMemberAdd failed");
+    }
+  });
+
+  client.on(Events.GuildMemberUpdate, async (oldMember: GuildMember | PartialGuildMember, newMember: GuildMember) => {
+    try {
+      const managedRoles = await prisma.role.findMany({
+        where: { isInternal: false, discordRoleId: { not: null } },
+      });
+      const changedRoles = managedRoles.filter((role) =>
+        oldMember.roles.cache.has(role.discordRoleId!) !== newMember.roles.cache.has(role.discordRoleId!),
+      );
+      if (changedRoles.length === 0) return;
+
+      const user = await prisma.user.findUnique({ where: { discordId: newMember.id } });
+      const member = user
+        ? await prisma.discordMember.findUnique({ where: { userId: user.id } })
+        : null;
+
+      for (const role of changedRoles) {
+        const shouldHave = member
+          ? Boolean(await prisma.memberRole.findUnique({
+              where: { memberId_roleId: { memberId: member.id, roleId: role.id } },
+            }))
+          : false;
+        const currentlyHas = newMember.roles.cache.has(role.discordRoleId!);
+        if (shouldHave === currentlyHas) continue;
+
+        if (shouldHave) {
+          await newMember.roles.add(role.discordRoleId!, "Restore Overland-managed role from the member role ledger");
+        } else {
+          await newMember.roles.remove(role.discordRoleId!, "Remove role not authorized by the Overland role ledger");
+        }
+
+        if (member) {
+          await prisma.roleHistory.create({
+            data: {
+              memberId: member.id,
+              roleId: role.id,
+              action: shouldHave ? "RESTORE_UNAUTHORIZED_CHANGE" : "REVOKE_UNAUTHORIZED_CHANGE",
+              actorId: null,
+              reason: "Discord role change did not match the Overland role ledger",
+            },
+          }).catch(() => undefined);
+        }
+        await audit(null, "roles.unauthorized_discord_change", "Role", role.id, {
+          discordId: newMember.id,
+          roleName: role.name,
+          restored: shouldHave,
+        });
+      }
+    } catch (err) {
+      logger.error({ err, memberId: newMember.id }, "Could not enforce Overland-managed role state");
     }
   });
 
@@ -141,10 +210,14 @@ export function registerEvents(client: Client): void {
         where: { memberId: member.id, source: "PARTICIPATION", createdAt: { gte: today } },
       });
       if (earned < 10) {
-        await awardPoints({
-          memberId: member.id, currency: "OVERPOINTS", category: "community", amount: 2,
-          source: "PARTICIPATION", reason: "Meaningful participation", idempotencyKey: "msg-" + msg.id,
-        }).catch(() => undefined);
+        const award = await awardParticipation(member.id, msg.id).catch((err) => {
+          logger.warn({ err, memberId: member.id }, "Participation reward was not issued");
+          return null;
+        });
+        if (award && !award.duplicate) {
+          await checkProgression(member.id, "system", msg.guild).catch((err) =>
+            logger.warn({ err, memberId: member.id }, "Role progression check failed"));
+        }
       }
     } catch (err) {
       logger.error({ err }, "MessageCreate handler failed");
