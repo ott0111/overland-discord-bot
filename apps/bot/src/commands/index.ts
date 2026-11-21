@@ -474,13 +474,50 @@ export const commands: Command[] = [
   simpleCmd("opportunities", "Open opportunities", (i) => replyInfo(i, "opportunities", "Opportunities")),
   socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(), kickCmd(), banCmd(), unbanCmd(), modHistoryCmd(), purgeCmd(), ticketSetupCmd(), verificationSetupCmd(), xSetupCmd(),
   { data: new SlashCommandBuilder().setName("help").setDescription("List Overland Core commands"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Overland Core commands", commands.map((c: Command) => `/${c.data.name} - ${c.data.description}`).join("\n"))] }); } },
-  { data: new SlashCommandBuilder().setName("invite").setDescription("Get your personal referral invite link"), execute: async (i) => {
+  { data: new SlashCommandBuilder().setName("invite").setDescription("Get your persistent personal referral invite link"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
-    await ensureMember(i.user.id, i.user.username);
+    const member = await ensureMember(i.user.id, i.user.username);
     const guild = i.guild;
     if (!guild) { await i.editReply("Use this in the server."); return; }
-    const invite = await guild.invites.create(i.channelId ?? guild.systemChannelId ?? guild.id, { maxAge: 0, maxUses: 0, unique: true, reason: `Referral invite for ${i.user.username}` }).catch(() => null);
-    await i.editReply({ embeds: [overlandEmbed("Your referral invite", invite ? `Share this link: https://discord.gg/${invite.code}\nNew members who join and verify earn you referral points.` : "Invite creation failed. Ask staff to check bot permissions.")] });
+
+    const invites = await guild.invites.fetch().catch(() => null);
+    if (!invites) {
+      await i.editReply({ embeds: [errorEmbed("I cannot read server invites. Staff need to grant Manage Server or Manage Guild invite access.")] });
+      return;
+    }
+
+    const stored = await prisma.referralInvite.findFirst({
+      where: { memberId: member.id, revokedAt: null },
+      orderBy: { createdAt: "desc" },
+    });
+    const existing = stored ? invites.get(stored.inviteCode) : null;
+    if (existing) {
+      await i.editReply({ embeds: [overlandEmbed("Your referral invite", "Share your personal invite link:\n" + existing.url + "\n\nVerified joins through this link count toward your referral progress.")] });
+      return;
+    }
+
+    if (stored) {
+      await prisma.referralInvite.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
+    }
+
+    const channelId = i.channelId ?? guild.systemChannelId;
+    if (!channelId) {
+      await i.editReply({ embeds: [errorEmbed("No channel is available to create an invite.")] });
+      return;
+    }
+    const invite = await guild.invites.create(channelId, {
+      maxAge: 0,
+      maxUses: 0,
+      unique: true,
+      reason: "Persistent Overland referral invite for " + i.user.username,
+    }).catch(() => null);
+    if (!invite) {
+      await i.editReply({ embeds: [errorEmbed("Invite creation failed. Ask staff to check the bot's invite permissions.")] });
+      return;
+    }
+
+    await prisma.referralInvite.create({ data: { memberId: member.id, inviteCode: invite.code } });
+    await i.editReply({ embeds: [overlandEmbed("Your referral invite", "Share your personal invite link:\n" + invite.url + "\n\nVerified joins through this link count toward your referral progress.")] });
   } },
   { data: new SlashCommandBuilder().setName("referrals").setDescription("View your referral stats"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
