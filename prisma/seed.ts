@@ -77,7 +77,7 @@ async function main() {
     moderation: { profanityFilter: true, profanityWords: [], inviteFilter: true, maxMentions: 5, spamWindowSeconds: 10, spamMaxMessages: 5, suspiciousLinkAction: "delete" },
     xIntegration: { enabled: false, username: "OverlandFinance", ignoreReplies: true, ignoreReposts: true, pollMinutes: 15 },
     infoContent: { about: "Overland Finance is the commerce layer for digital dollars.", links: "https://overland-finance.vercel.app/", team: "Founder led team.", roadmap: "See our website for the latest roadmap.", updates: "No updates yet.", faq: "Ask in support.", opportunities: "Partnerships open.", socials: "X: @OverlandFinance" },
-    welcome: { enabled: true, channelId: null, title: "Welcome to {server}, {user}!", message: "We are glad you are here. Read the rules and complete verification to get started." },
+    welcome: { enabled: true, channelId: null, title: "Welcome to {server}, {user}!", message: "We are glad you are here. Read the rules and complete verification to get started.", sendDm: false },
     socialLinks: [], tickets: { staffRoleId: null, categoryChannelId: null },
   };
   for (const [key,value] of Object.entries(configs)) await prisma.botConfiguration.upsert({ where: { key }, update: { value: value as never }, create: { key, value: value as never } });
