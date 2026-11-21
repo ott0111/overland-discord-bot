@@ -9,7 +9,7 @@ const DATA_FILE = path.join(DATA_DIR, "overland.json");
 const defaults = () => ({
   settings: {
     welcomeChannelId: null, autoRoleId: null, welcomeMessage: "Welcome {user} to {server}!",
-    welcomeEnabled: false, welcomeDm: false, modLogChannelId: null,
+    welcomeEnabled: false, welcomeDm: false, modLogChannelId: null, logChannelId: null, leaveChannelId: null, reportsChannelId: null, suggestionsChannelId: null, ticketFeedbackChannelId: null, voiceHubChannelId: null, tempVoiceCategoryId: null, selfRoles: [], security: { antiSpam: true, antiLinks: false, antiMassMention: true, spamWindowSeconds: 8, spamMessageLimit: 6, maxMentions: 5, allowedDomains: ["overland.finance"] },
     verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
     roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
     dailyLimits: { OVERPOINTS: 100, OVERCREDITS: 250 }, pointValues: {
@@ -22,7 +22,7 @@ const defaults = () => ({
   },
   members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
-  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [],
+  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [], vouches: [], reports: [], appeals: [], suggestions: [], staffNotes: [], tempRoles: [], tempVoiceChannels: [], reminders: [], lockdown: { active: false, channels: [] },
   stats: { messages: 0, joins: 0, leaves: 0 }
 });
 
@@ -54,7 +54,7 @@ function normalizeGuild(guild) {
   guild.recentJoins ||= [];
   guild.settings.dailyLimits = { ...base.settings.dailyLimits, ...(guild.settings.dailyLimits || {}) };
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
-  guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
+  guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };\n  guild.settings.security = { ...base.settings.security, ...(guild.settings.security || {}) };\n  guild.settings.selfRoles ||= [];\n  for (const key of ["vouches","reports","appeals","suggestions","staffNotes","tempRoles","tempVoiceChannels","reminders"]) guild[key] ||= [];\n  guild.lockdown ||= { active: false, channels: [] };
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
   guild.members ||= {};
   return guild;

@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { command, reply, requireDiscordPerm, embed, successEmbed } from "../helpers.js";
 import { getGuild, saveStore } from "../../store.js";
 
@@ -32,7 +32,7 @@ async function openTicket(i) {
   const record = {
     id: "OV-" + Date.now().toString(36).toUpperCase(), channelId: channel.id, ownerId: i.user.id,
     ownerTag: i.user.tag, category, status: "OPEN", claimedBy: null, createdAt: new Date().toISOString(),
-    closedAt: null, feedback: null
+    closedAt: null, feedback: null, lastActivityAt: new Date().toISOString()
   };
   g.tickets.unshift(record);
   await saveStore();
@@ -65,6 +65,8 @@ async function closeTicket(i) {
   if (g.settings.ticketArchiveCategoryId) await channel.setParent(g.settings.ticketArchiveCategoryId).catch(() => {});
   await saveStore();
   await channel.send({ embeds: [successEmbed("TICKET ARCHIVED", "This ticket has been closed by " + i.user + ". Staff can still review its history.")] }).catch(() => {});
+  const feedbackRow = new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId("overland:ticket:rating:" + n + ":" + channel.id).setLabel(n + " / 5").setStyle(n >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)));
+  await channel.send({ embeds: [embed("HOW WAS YOUR SUPPORT EXPERIENCE?", "Your feedback helps us improve. Select a rating from 1 to 5.")], components: [feedbackRow] }).catch(() => {});
   return reply(i, "Ticket archived", "The ticket is now closed and retained for staff review.");
 }
 

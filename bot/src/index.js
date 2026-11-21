@@ -6,7 +6,7 @@ import {embed} from "./commands/helpers.js";
 import {checkProgression,syncDiscordRole} from "./services/roles.js";
 import {recordJoin,processReferralMilestones} from "./services/referrals.js";
 import {award} from "./services/economy.js";
-import {startCoreApi} from "./api.js";
+import {startCoreApi} from "./api.js";\nimport {handleMessage as runMessageAutomation, handleVoiceState, logEvent, runMaintenance} from "./services/automation.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -108,6 +108,25 @@ async function handleInteraction(i){
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
   if(i.isStringSelectMenu()&&i.customId==="overland:ticket:category")return await createTicket(i,i.values[0]);
+  if(i.isStringSelectMenu()&&i.customId==="overland:selfroles"){
+   const g=getGuild(i.guildId),allowed=new Set((g.settings.selfRoles||[]).map(x=>x.roleId)),member=await i.guild.members.fetch(i.user.id);
+   if(i.values.some(id=>!allowed.has(id)))throw new Error("That role is not approved for self-assignment.");
+   for(const roleId of (g.settings.selfRoles||[]).map(x=>x.roleId)){if(i.values.includes(roleId))await member.roles.add(roleId).catch(()=>{});else await member.roles.remove(roleId).catch(()=>{});}
+   return i.reply({content:"Your community role selections have been updated.",flags:MessageFlags.Ephemeral});
+  }
+  if(i.isButton()&&i.customId.startsWith("overland:community:vote:")){
+   const [, , , vote, id]=i.customId.split(":"),g=getGuild(i.guildId),item=(g.suggestions||[]).find(x=>x.id===id);if(!item)throw new Error("Suggestion not found.");
+   item.upvotes||=[];item.downvotes||=[];item.upvotes=item.upvotes.filter(x=>x!==i.user.id);item.downvotes=item.downvotes.filter(x=>x!==i.user.id);(vote==="up"?item.upvotes:item.downvotes).push(i.user.id);await saveStore();
+   const msg=await i.channel.messages.fetch(item.messageId).catch(()=>null);if(msg){const row=new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:community:vote:up:"+id).setLabel("Support · "+item.upvotes.length).setStyle(ButtonStyle.Success),new ButtonBuilder().setCustomId("overland:community:vote:down:"+id).setLabel("Not for me · "+item.downvotes.length).setStyle(ButtonStyle.Secondary));await msg.edit({components:[row]});}
+   return i.reply({content:"Your vote has been recorded.",flags:MessageFlags.Ephemeral});
+  }
+  if(i.isButton()&&i.customId.startsWith("overland:ticket:rating:")){
+   const p=i.customId.split(":"),rating=Number(p[3]),channelId=p[4],g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===channelId);
+   if(!record||record.ownerId!==i.user.id)throw new Error("Only the ticket creator can rate this ticket.");if(record.feedback)throw new Error("Feedback has already been submitted.");
+   record.feedback={rating,submittedAt:new Date().toISOString()};await saveStore();const dest=g.settings.ticketFeedbackChannelId?await i.guild.channels.fetch(g.settings.ticketFeedbackChannelId).catch(()=>null):null;
+   if(dest?.isTextBased())await dest.send({embeds:[embed("TICKET FEEDBACK  /  "+record.id,"A member rated their support experience.").addFields({name:"RATING",value:rating+"/5",inline:true},{name:"CATEGORY",value:record.category,inline:true},{name:"MEMBER",value:"<@"+record.ownerId+">",inline:true})]});
+   return i.reply({content:"Thanks for rating your Overland support experience.",flags:MessageFlags.Ephemeral});
+  }
   if(i.isButton()&&i.customId==="overland:ticket:close"){
    const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
    const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
@@ -142,11 +161,13 @@ client.on(Events.GuildMemberAdd,async member=>{
   const cfg=g.settings;
   if(cfg.autoRoleId){const role=await member.guild.roles.fetch(cfg.autoRoleId).catch(()=>null);if(role)await member.roles.add(role).catch(e=>console.error("[AutoRole]",e.message));}
   if(cfg.welcomeEnabled&&cfg.welcomeChannelId){const ch=await member.guild.channels.fetch(cfg.welcomeChannelId).catch(()=>null);if(ch?.isTextBased())await ch.send({embeds:[embed("Welcome to Overland",cfg.welcomeMessage.replaceAll("{user}",member.toString()).replaceAll("{server}",member.guild.name))]});}
-  if(cfg.welcomeDm)await member.send({embeds:[embed("Welcome to Overland","Welcome to "+member.guild.name+". Please review the rules and complete verification to get started.")] }).catch(()=>{});
+  if(cfg.welcomeDm)await member.send({embeds:[embed("WELCOME TO OVERLAND","Welcome to "+member.guild.name+". Please review the rules and complete verification to get started.").setThumbnail(member.user.displayAvatarURL({size:256}))] }).catch(()=>{});
+  await logEvent(member.guild,"MEMBER JOINED",member.user.tag+" joined the server.",[{name:"ACCOUNT AGE",value:"<t:"+Math.floor(member.user.createdTimestamp/1000)+":R>",inline:true},{name:"MEMBERS",value:String(member.guild.memberCount),inline:true}]);
+  if([100,250,500,1000,2500,5000,10000].includes(member.guild.memberCount)){const target=cfg.welcomeChannelId?await member.guild.channels.fetch(cfg.welcomeChannelId).catch(()=>null):null;if(target?.isTextBased())await target.send({embeds:[embed("COMMUNITY MILESTONE","Overland has reached **"+member.guild.memberCount.toLocaleString()+" members**. Thank you for building this community.")]});}
   await saveStore();
  }catch(e){console.error("[GuildMemberAdd]",e);}
 });
-client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;await saveStore();});
+client.on(Events.GuildMemberRemove,async m=>{try{const g=getGuild(m.guild.id);g.stats.leaves++;const ch=g.settings.leaveChannelId?await m.guild.channels.fetch(g.settings.leaveChannelId).catch(()=>null):null;if(ch?.isTextBased())await ch.send({embeds:[embed("MEMBER DEPARTED",m.user.tag+" has left Overland.").setThumbnail(m.user.displayAvatarURL({size:256})).addFields({name:"MEMBERS",value:String(m.guild.memberCount),inline:true})]});await logEvent(m.guild,"MEMBER LEFT",m.user.tag+" left the server.",[{name:"USER ID",value:m.id}]);await saveStore();}catch(e){console.error("[MemberLeave]",e);}});
 client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
  try{
   const g=getGuild(newMember.guild.id),member=getMember(newMember.guild.id,newMember.user);
@@ -160,7 +181,15 @@ client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
   await saveStore();
  }catch(e){console.error("[RoleSync]",e);}
 });
-client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(g.stats.messages%25===0)await saveStore();});
+client.on(Events.MessageCreate,async m=>{try{await runMessageAutomation(m);}catch(e){console.error("[MessageAutomation]",e);}});
+client.on(Events.MessageDelete,async m=>{if(m.guild&&!m.author?.bot)await logEvent(m.guild,"MESSAGE DELETED","A message was deleted.",[{name:"AUTHOR",value:m.author?.tag||"Unknown",inline:true},{name:"CHANNEL",value:m.channel?.toString()||"Unknown",inline:true},{name:"CONTENT",value:(m.content||"Content unavailable").slice(0,900)}]);});
+client.on(Events.MessageUpdate,async(a,b)=>{if(b.guild&&!b.author?.bot&&a.content!==b.content)await logEvent(b.guild,"MESSAGE EDITED","A message was edited.",[{name:"AUTHOR",value:b.author?.tag||"Unknown",inline:true},{name:"CHANNEL",value:b.channel?.toString()||"Unknown",inline:true},{name:"BEFORE",value:(a.content||"Unavailable").slice(0,450)},{name:"AFTER",value:(b.content||"Unavailable").slice(0,450)}]);});
+client.on(Events.ChannelCreate,async c=>{if(c.guild)await logEvent(c.guild,"CHANNEL CREATED",c.toString());});
+client.on(Events.ChannelDelete,async c=>{if(c.guild)await logEvent(c.guild,"CHANNEL DELETED",c.name||c.id);});
+client.on(Events.GuildRoleCreate,async r=>logEvent(r.guild,"ROLE CREATED","Role **"+r.name+"** was created."));
+client.on(Events.GuildRoleDelete,async r=>logEvent(r.guild,"ROLE DELETED","Role **"+r.name+"** was deleted."));
+client.on(Events.VoiceStateUpdate,async(a,b)=>{try{await handleVoiceState(a,b);}catch(e){console.error("[Voice]",e);}});
+client.on(Events.GuildMemberUpdate,async(a,b)=>{if(!a.premiumSince&&b.premiumSince){const g=getGuild(b.guild.id),ch=g.settings.welcomeChannelId?await b.guild.channels.fetch(g.settings.welcomeChannelId).catch(()=>null):null;if(ch?.isTextBased())await ch.send({embeds:[embed("COMMUNITY BOOST","Thank you "+b.user+" for boosting Overland.").setThumbnail(b.user.displayAvatarURL({size:256}))]});await logEvent(b.guild,"SERVER BOOST",b.user.tag+" boosted the server.");}});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
  ready.user.setPresence({
@@ -180,8 +209,8 @@ client.once(Events.ClientReady,async ready=>{
 });
 const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
-const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);
-async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();process.exit(0);}
+const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);\nconst maintenanceTimer=setInterval(()=>runMaintenance(client).catch(e=>console.error("[Maintenance]",e)),60*1000);
+async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);clearInterval(maintenanceTimer);await saveStore();client.destroy();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
 await ownerBootstrap();

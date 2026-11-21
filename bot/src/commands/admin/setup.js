@@ -1,0 +1,24 @@
+import {SlashCommandBuilder,ChannelType} from "discord.js";
+import {command,requirePerm,embed} from "../helpers.js";
+import {getGuild,saveStore} from "../../store.js";
+export default command(new SlashCommandBuilder().setName("setup").setDescription("Configure Overland automation")
+.addSubcommand(s=>s.setName("logs").setDescription("Set event log channel").addChannelOption(o=>o.setName("channel").setDescription("Log channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+.addSubcommand(s=>s.setName("welcome").setDescription("Configure welcome cards").addChannelOption(o=>o.setName("channel").setDescription("Welcome channel").addChannelTypes(ChannelType.GuildText).setRequired(true)).addStringOption(o=>o.setName("message").setDescription("Use {user} and {server}").setMaxLength(1200)))
+.addSubcommand(s=>s.setName("leave").setDescription("Set member leave channel").addChannelOption(o=>o.setName("channel").setDescription("Leave channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+.addSubcommand(s=>s.setName("reports").setDescription("Set private reports channel").addChannelOption(o=>o.setName("channel").setDescription("Staff-only channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+.addSubcommand(s=>s.setName("suggestions").setDescription("Set suggestions channel").addChannelOption(o=>o.setName("channel").setDescription("Suggestions channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+.addSubcommand(s=>s.setName("feedback").setDescription("Set ticket feedback channel").addChannelOption(o=>o.setName("channel").setDescription("Feedback channel").addChannelTypes(ChannelType.GuildText).setRequired(true)))
+.addSubcommand(s=>s.setName("voice").setDescription("Configure join-to-create voice rooms").addChannelOption(o=>o.setName("hub").setDescription("Voice hub").addChannelTypes(ChannelType.GuildVoice).setRequired(true)).addChannelOption(o=>o.setName("category").setDescription("Parent category").addChannelTypes(ChannelType.GuildCategory)))
+.addSubcommand(s=>s.setName("security").setDescription("Configure message protection").addBooleanOption(o=>o.setName("anti-spam").setDescription("Remove rapid repeated messages")).addBooleanOption(o=>o.setName("anti-links").setDescription("Block links outside allowlist")).addBooleanOption(o=>o.setName("anti-mentions").setDescription("Block mass mentions")).addIntegerOption(o=>o.setName("spam-limit").setDescription("Messages per time window").setMinValue(3).setMaxValue(15)).addIntegerOption(o=>o.setName("max-mentions").setDescription("Mention limit").setMinValue(1).setMaxValue(20)))
+.addSubcommand(s=>s.setName("self-role").setDescription("Add or remove a self-assignable role").addStringOption(o=>o.setName("action").setDescription("Add or remove").setRequired(true).addChoices({name:"Add",value:"add"},{name:"Remove",value:"remove"})).addRoleOption(o=>o.setName("role").setDescription("Role").setRequired(true)).addStringOption(o=>o.setName("label").setDescription("Menu label").setMaxLength(80))),
+async i=>{requirePerm(i,"config.manage");const g=getGuild(i.guildId),sub=i.options.getSubcommand();
+if(sub==="logs")g.settings.logChannelId=i.options.getChannel("channel",true).id;
+if(sub==="welcome"){g.settings.welcomeChannelId=i.options.getChannel("channel",true).id;g.settings.welcomeMessage=i.options.getString("message")||"Welcome {user} to {server}!";g.settings.welcomeEnabled=true;}
+if(sub==="leave")g.settings.leaveChannelId=i.options.getChannel("channel",true).id;
+if(sub==="reports")g.settings.reportsChannelId=i.options.getChannel("channel",true).id;
+if(sub==="suggestions")g.settings.suggestionsChannelId=i.options.getChannel("channel",true).id;
+if(sub==="feedback")g.settings.ticketFeedbackChannelId=i.options.getChannel("channel",true).id;
+if(sub==="voice"){g.settings.voiceHubChannelId=i.options.getChannel("hub",true).id;g.settings.tempVoiceCategoryId=i.options.getChannel("category")?.id||null;}
+if(sub==="security"){const c=g.settings.security;for(const [o,k] of [["anti-spam","antiSpam"],["anti-links","antiLinks"],["anti-mentions","antiMassMention"]]){const v=i.options.getBoolean(o);if(v!==null)c[k]=v;}const n=i.options.getInteger("spam-limit"),m=i.options.getInteger("max-mentions");if(n!==null)c.spamMessageLimit=n;if(m!==null)c.maxMentions=m;}
+if(sub==="self-role"){const r=i.options.getRole("role",true),action=i.options.getString("action",true);g.settings.selfRoles||=[];if(action==="add"){if(r.managed||r.id===i.guildId)throw new Error("That role cannot be self-assigned.");if(!g.settings.selfRoles.some(x=>x.roleId===r.id))g.settings.selfRoles.push({roleId:r.id,label:i.options.getString("label")||r.name});}else g.settings.selfRoles=g.settings.selfRoles.filter(x=>x.roleId!==r.id);}
+await saveStore();return i.reply({embeds:[embed("OVERLAND CONFIGURATION SAVED","The **"+sub+"** settings have been updated.")],ephemeral:true});});
