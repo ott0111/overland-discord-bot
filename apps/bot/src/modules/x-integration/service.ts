@@ -142,7 +142,7 @@ export async function pollXPosts(client?: Client) {
   }
   const latest = await prisma.xPost.findFirst({ orderBy: { createdAt: "desc" } });
   const posts = await fetchRecentXPosts(config.username, latest?.postId);
-  if (!posts) return { enabled: false, announced: 0, skipped: 0, reason: "X API returned no data" };
+  if (!posts) return { enabled: false, announced, skipped, reason: "X API returned no data" };
   for (const post of posts) {
     if (!shouldAnnouncePost(post, config.ignoreReplies, config.ignoreReposts)) { skipped += 1; continue; }
     const existing = await prisma.xPost.findUnique({ where: { postId: post.id } });
