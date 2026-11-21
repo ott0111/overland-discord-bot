@@ -6,17 +6,36 @@ import { checkComradeConversion } from "../referrals/service.js";
 
 export async function grantRole(memberId: string, roleName: string, actorId: string, reason?: string) {
   const role = await prisma.role.findUnique({ where: { name: roleName } });
-  if (!role) throw new Error(`Role not found: ${roleName}`);
+  if (!role) throw new Error("Role not found: " + roleName);
   if (role.isInternal) throw new Error("Internal roles are assigned only through Internal Team management, not this path");
   if (role.requiresRoleId) {
     const has = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId, roleId: role.requiresRoleId } } });
-    if (!has) throw new Error(`Role ${roleName} requires the prerequisite role first`);
+    if (!has) throw new Error("Role " + roleName + " requires the prerequisite role first");
   }
-  await prisma.$transaction([
-    prisma.memberRole.upsert({ where: { memberId_roleId: { memberId, roleId: role.id } }, update: {}, create: { memberId, roleId: role.id, grantedBy: actorId } }),
-    prisma.roleHistory.create({ data: { memberId, roleId: role.id, action: "GRANT", actorId, reason } }),
-  ]);
-  await audit(actorId, "roles.grant", "Role", role.id, { memberId, roleName });
+
+  let granted = false;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await tx.memberRole.findUnique({
+        where: { memberId_roleId: { memberId, roleId: role.id } },
+      });
+      if (existing) return;
+      await tx.memberRole.create({
+        data: { memberId, roleId: role.id, grantedBy: actorId },
+      });
+      await tx.roleHistory.create({
+        data: { memberId, roleId: role.id, action: "GRANT", actorId, reason },
+      });
+      granted = true;
+    });
+  } catch (err) {
+    if (!(err && typeof err === "object" && "code" in err && err.code === "P2002")) throw err;
+  }
+
+  if (granted) {
+    await audit(actorId, "roles.grant", "Role", role.id, { memberId, roleName });
+  }
+  return { granted, duplicate: !granted };
 }
 
 /** Pure requirement check, unit tested. */
