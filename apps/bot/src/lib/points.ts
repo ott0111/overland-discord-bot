@@ -25,6 +25,7 @@ const CATEGORY_FIELD: Record<string, string> = {
 };
 
 async function awardWithTx(tx: TxClient, input: AwardInput) {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.memberId}))`;
   if (!Number.isSafeInteger(input.amount) || input.amount === 0) {
     throw new Error("Amount must be a non-zero safe integer");
   }
