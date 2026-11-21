@@ -1,0 +1,3 @@
+import {SlashCommandBuilder,ActionRowBuilder,ButtonBuilder,ButtonStyle} from "discord.js";
+import {command,reply,requirePerm,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("verify-panel").setDescription("Post the Overland verification panel"),async i=>{requirePerm(i,"roles.manage");await i.channel.send({embeds:[embed("OVERLAND VERIFICATION","Complete the verification challenge to unlock the member area. Press the button below to begin.")],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:verify:start").setLabel("Start verification").setStyle(ButtonStyle.Success))]});return reply(i,"Verification panel published","The panel is live in this channel.");});
