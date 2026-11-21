@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
+import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
 import { prisma } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
@@ -15,6 +15,8 @@ import { getReferralStats } from "../modules/referrals/service.js";
 import { staffVerify } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
 import { assignRole } from "../modules/roles/service.js";
+import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
+import { getModerationConfig, lockdownOn, lockdownOff, isLockdownActive } from "../modules/moderation/service.js";
 
 export interface Command { data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder; execute: (i: ChatInputCommandInteraction) => Promise<void>; }
 
@@ -112,6 +114,128 @@ function simpleCmd(name: string, desc: string, fn: (i: ChatInputCommandInteracti
   return { data: new SlashCommandBuilder().setName(name).setDescription(desc), execute: fn };
 }
 
+
+function linkCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("link").setDescription("Manage Overland social and resource links")
+      .addSubcommand((s) => s.setName("add").setDescription("Add or replace a saved link").addStringOption((o) => o.setName("name").setDescription("Button label").setRequired(true)).addStringOption((o) => o.setName("url").setDescription("HTTPS URL").setRequired(true)).addStringOption((o) => o.setName("key").setDescription("Stable key, optional")))
+      .addSubcommand((s) => s.setName("edit").setDescription("Edit a saved link").addStringOption((o) => o.setName("key").setDescription("Existing link key").setRequired(true)).addStringOption((o) => o.setName("name").setDescription("New button label").setRequired(true)).addStringOption((o) => o.setName("url").setDescription("New HTTPS URL").setRequired(true)))
+      .addSubcommand((s) => s.setName("remove").setDescription("Remove a saved link").addStringOption((o) => o.setName("key").setDescription("Link key").setRequired(true)))
+      .addSubcommand((s) => s.setName("list").setDescription("List saved links")),
+    execute: async (i) => {
+      const action = i.options.getSubcommand();
+      if (action === "list") {
+        const links = await getSavedLinks();
+        await i.reply({ ephemeral: true, embeds: [overlandEmbed("Saved links", links.map((x) => "**" + x.label + "** (" + x.key + ")\n" + x.url).join("\n") || "No links have been configured.")] });
+        return;
+      }
+      await i.deferReply({ ephemeral: true });
+      try {
+        if (action === "remove") {
+          const removed = await removeLink(i.user.id, i.options.getString("key", true));
+          await i.editReply({ embeds: [overlandEmbed(removed ? "Link removed" : "Link not found", removed ? "The saved link was removed." : "No saved link matched that key.")] });
+          return;
+        }
+        const label = i.options.getString("name", true);
+        const url = i.options.getString("url", true);
+        const key = action === "edit" ? i.options.getString("key", true) : i.options.getString("key") ?? label;
+        const saved = await saveLink(i.user.id, label, url, key);
+        await i.editReply({ embeds: [overlandEmbed("Link saved", "**" + saved.label + "** is now available in /socials.\nKey: " + saved.key)] });
+      } catch (err) {
+        await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Link update failed.")] });
+      }
+    },
+  };
+}
+function socialsCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("socials").setDescription("View Overland's configured social links"),
+    execute: async (i) => {
+      const links = await getSavedLinks();
+      const embed = overlandEmbed("Overland socials", links.map((x) => "**[" + x.label + "](" + x.url + ")**").join("\n") || "Social links haven't been configured yet.");
+      const rows: ActionRowBuilder<ButtonBuilder>[] = [];
+      for (let n = 0; n < Math.min(links.length, 25); n += 5) {
+        rows.push(new ActionRowBuilder<ButtonBuilder>().addComponents(...links.slice(n, n + 5).map((x) =>
+          new ButtonBuilder().setLabel(x.label.slice(0, 80)).setURL(x.url).setStyle(ButtonStyle.Link))));
+      }
+      await i.reply({ embeds: [embed], components: rows });
+    },
+  };
+}
+function welcomeCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("welcome").setDescription("Configure the member welcome system")
+      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages")))
+      .addSubcommand((s) => s.setName("preview").setDescription("Preview the current welcome message")),
+    execute: async (i) => {
+      const config = await getWelcomeSettings();
+      if (i.options.getSubcommand() === "preview") {
+        const title = config.title.replaceAll("{user}", i.user.username).replaceAll("{server}", i.guild?.name ?? "Overland");
+        const message = config.message.replaceAll("{user}", "<@" + i.user.id + ">").replaceAll("{server}", i.guild?.name ?? "Overland");
+        await i.reply({ ephemeral: true, embeds: [overlandEmbed(title, message)] });
+        return;
+      }
+      const channel = i.options.getChannel("channel", true);
+      if (!channel.isTextBased() || !("send" in channel)) { await i.reply({ ephemeral: true, embeds: [errorEmbed("Choose a text channel.")] }); return; }
+      await i.deferReply({ ephemeral: true });
+      try {
+        const next = await updateWelcomeSettings(i.user.id, {
+          channelId: channel.id,
+          title: i.options.getString("title") ?? config.title,
+          message: i.options.getString("message") ?? config.message,
+          enabled: i.options.getBoolean("enabled") ?? true,
+        });
+        await i.editReply({ embeds: [overlandEmbed("Welcome system configured", "Channel: <#" + next.channelId + ">\nEnabled: " + (next.enabled ? "Yes" : "No") + "\nUse /welcome preview to check the message.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Welcome setup failed.")] }); }
+    },
+  };
+}
+function setupCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("setup").setDescription("View setup instructions for Overland Core")
+      .addStringOption((o) => o.setName("feature").setDescription("Feature to configure").setRequired(true).addChoices(
+        { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "links" },
+        { name: "Tickets", value: "tickets" }, { name: "Verification", value: "verification" },
+        { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" })),
+    execute: async (i) => {
+      const feature = i.options.getString("feature", true);
+      const instructions: Record<string, string> = {
+        welcome: "Run /welcome setup and choose a channel, title and message. Use {user} and {server} placeholders. Preview with /welcome preview.",
+        links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
+        tickets: "Create a private ticket category and staff role, then configure the ticket settings in the Overland dashboard.",
+        verification: "Configure minimum account age and CAPTCHA requirements in the dashboard. Set the onboarding channel and Citizen role.",
+        security: "Use /security status to inspect protections and /security lockdown to restrict server messaging during an incident.",
+        x: "Configure the X username, bearer token and announcement channel in environment variables and the dashboard.",
+      };
+      await i.reply({ ephemeral: true, embeds: [overlandEmbed("Setup: " + feature, instructions[feature] ?? "See the deployment guide.")] });
+    },
+  };
+}
+function securityCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("security").setDescription("Inspect and control server security")
+      .addSubcommand((s) => s.setName("status").setDescription("Show active security settings"))
+      .addSubcommand((s) => s.setName("lockdown").setDescription("Enable or disable server lockdown").addStringOption((o) => o.setName("action").setDescription("Lockdown action").setRequired(true).addChoices({ name: "Enable", value: "enable" }, { name: "Disable", value: "disable" }))),
+    execute: async (i) => {
+      const sub = i.options.getSubcommand();
+      if (sub === "status") {
+        if (!(await requirePerm(i, "moderation.view"))) return;
+        const cfg = await getModerationConfig();
+        await i.reply({ ephemeral: true, embeds: [overlandEmbed("Security status", "Lockdown: " + (await isLockdownActive() ? "ACTIVE" : "Off") + "\nSpam threshold: " + cfg.spamMaxMessages + " messages / " + cfg.spamWindowSeconds + "s\nMention limit: " + cfg.maxMentions + "\nInvite filter: " + (cfg.inviteFilter ? "On" : "Off") + "\nSuspicious link filter: " + cfg.suspiciousLinkAction)] });
+        return;
+      }
+      if (!(await requirePerm(i, "moderation.action"))) return;
+      await i.deferReply({ ephemeral: true });
+      try {
+        const action = i.options.getString("action", true);
+        if (action === "enable") await lockdownOn(i.user.id, i.guild ?? undefined);
+        else await lockdownOff(i.user.id, i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Security updated", action === "enable" ? "Server lockdown is active. @everyone cannot send messages in text channels." : "Server lockdown has been disabled.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Security action failed.")] }); }
+    },
+  };
+}
+
 export const commands: Command[] = [
   profileCmd(), dailyCmd(), leaderboardCmd(),
   simpleCmd("about", "About Overland Finance", (i) => replyInfo(i, "about", "About Overland Finance")),
@@ -121,7 +245,7 @@ export const commands: Command[] = [
   simpleCmd("updates", "Latest Overland updates", (i) => replyInfo(i, "updates", "Updates")),
   simpleCmd("faq", "Frequently asked questions", (i) => replyInfo(i, "faq", "FAQ")),
   simpleCmd("opportunities", "Open opportunities", (i) => replyInfo(i, "opportunities", "Opportunities")),
-  simpleCmd("socials", "Overland social accounts", (i) => replyInfo(i, "socials", "Socials")),
+  socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(),
   { data: new SlashCommandBuilder().setName("help").setDescription("List Overland Core commands"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Overland Core commands", commands.map((c: Command) => `/${c.data.name} - ${c.data.description}`).join("\n"))] }); } },
   { data: new SlashCommandBuilder().setName("invite").setDescription("Get your personal referral invite link"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
