@@ -25,7 +25,7 @@ export const DEFAULT_GROUP_PERMISSIONS: Record<string, readonly PermissionKey[]>
   ],
   Administration: [
     "team.view", "roles.assign", "roles.manage", "economy.view", "campaigns.manage",
-    "campaigns.review", "referrals.view", "rewards.manage", "rewards.review",
+    "campaigns.review", "community.manage", "referrals.view", "rewards.manage", "rewards.review",
     "tickets.view", "tickets.manage", "moderation.view", "moderation.action",
     "config.manage", "analytics.view", "audit.view", "achievements.manage", "x.manage",
   ],
