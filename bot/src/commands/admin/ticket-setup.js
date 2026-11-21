@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChannelType, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder } from "discord.js";
+import { SlashCommandBuilder, ChannelType, ActionRowBuilder, StringSelectMenuBuilder } from "discord.js";
 import { command, reply, requirePerm, embed } from "../helpers.js";
 import { getGuild, saveStore } from "../../store.js";
 
@@ -19,19 +19,27 @@ export default command(
     g.settings.ticketArchiveCategoryId = i.options.getChannel("archive-category")?.id || null;
     await saveStore();
 
-    const panel = embed("OVERLAND SUPPORT", "A dedicated support desk for the Overland community.\n\nChoose the right category when opening your ticket. Our team will review your request and respond in your private channel.")
+    const panel = embed("OVERLAND SUPPORT", "A dedicated support desk for the Overland community.\n\nChoose the right category below. Our team will review your request and respond in a private channel.")
       .addFields(
         { name: "GENERAL SUPPORT", value: "Questions, account help, and community assistance.", inline: true },
         { name: "REPORTS", value: "Report a concern or bring an issue to the team's attention.", inline: true },
         { name: "PARTNERSHIPS", value: "Business inquiries and collaboration requests.", inline: true },
         { name: "APPLICATIONS", value: "Applications and opportunities within Overland.", inline: true },
-        { name: "Before you open a ticket", value: "Please include useful context and avoid duplicate requests. Never share passwords, seed phrases, private keys, or authentication codes.", inline: false }
+        { name: "SECURITY REMINDER", value: "Never share passwords, seed phrases, private keys, or authentication codes.", inline: false }
       )
       .setThumbnail(process.env.OVERLAND_ICON_URL || i.client.user.displayAvatarURL());
-    await panelChannel.send({
-      embeds: [panel],
-      components: [new ActionRowBuilder().addComponents(new StringSelectMenuBuilder().setCustomId("overland:ticket:category").setPlaceholder("Select a support category").addOptions(\n        { label: "General Support", value: "support", description: "Questions and community assistance" },\n        { label: "Reports", value: "reports", description: "Report an issue or concern" },\n        { label: "Partnerships", value: "partnerships", description: "Business and collaboration inquiries" },\n        { label: "Applications", value: "applications", description: "Applications and opportunities" }\n      ))]
-    });
-    await reply(i, "Support panel published", "The Overland support panel is live in " + panelChannel + ". Ticket channels will be private and can be archived when closed.");
+
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId("overland:ticket:category")
+      .setPlaceholder("Select a support category")
+      .addOptions(
+        { label: "General Support", value: "support", description: "Questions and community assistance" },
+        { label: "Reports", value: "reports", description: "Report an issue or concern" },
+        { label: "Partnerships", value: "partnerships", description: "Business and collaboration inquiries" },
+        { label: "Applications", value: "applications", description: "Applications and opportunities" }
+      );
+
+    await panelChannel.send({ embeds: [panel], components: [new ActionRowBuilder().addComponents(menu)] });
+    await reply(i, "Support panel published", "The Overland support panel is live in " + panelChannel + ". Ticket channels are private and can be archived when closed.");
   }
 );
