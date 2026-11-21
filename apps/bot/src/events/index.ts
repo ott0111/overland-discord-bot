@@ -1,4 +1,4 @@
-import { Events, type Client, type GuildMember, type Message, type Invite } from "discord.js";
+import { Events, type Client, type GuildMember, type PartialGuildMember, type Message, type Invite } from "discord.js";
 import { prisma, audit } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { overlandEmbed } from "../lib/embeds.js";
@@ -108,7 +108,7 @@ export function registerEvents(client: Client): void {
     }
   });
 
-  client.on(Events.GuildMemberUpdate, async (oldMember: GuildMember, newMember: GuildMember) => {
+  client.on(Events.GuildMemberUpdate, async (oldMember: GuildMember | PartialGuildMember, newMember: GuildMember) => {
     try {
       const managedRoles = await prisma.role.findMany({
         where: { isInternal: false, discordRoleId: { not: null } },
