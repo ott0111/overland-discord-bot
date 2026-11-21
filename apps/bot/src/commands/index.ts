@@ -194,7 +194,7 @@ function setupCmd(): Command {
   return {
     data: new SlashCommandBuilder().setName("setup").setDescription("Configure Overland community information and systems")
       .addStringOption((o) => o.setName("feature").setDescription("Feature or information page").setRequired(true).addChoices(
-        { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "links" },
+        { name: "Welcome messages", value: "welcome" }, { name: "Social links", value: "social_links" },
         { name: "Tickets", value: "tickets" }, { name: "Verification", value: "verification" },
         { name: "Security and moderation", value: "security" }, { name: "X announcements", value: "x" },
         { name: "About page", value: "about" }, { name: "Public team page", value: "team" },
@@ -225,7 +225,7 @@ function setupCmd(): Command {
       }
       const instructions: Record<string, string> = {
         welcome: "Run /welcome setup and choose a channel, title and message. Use {user} and {server} placeholders. Preview with /welcome preview.",
-        links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
+        social_links: "Add links with /link add, update them with /link edit, and publish them with /socials. Links must use HTTPS.",
         tickets: "Run /ticket-setup to set the staff role and private ticket category.",
         verification: "Run /verification-setup to configure account age, CAPTCHA and avatar requirements. Configure the Citizen role in the dashboard.",
         security: "Use /security status to inspect protections and /security lockdown to restrict server messaging during an incident.",
