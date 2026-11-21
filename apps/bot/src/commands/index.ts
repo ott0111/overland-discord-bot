@@ -759,7 +759,7 @@ export const commands: Command[] = [
   } },
   { data: new SlashCommandBuilder().setName("verification-panel").setDescription("Staff: publish the interactive Citizen verification panel").addChannelOption((o) => o.setName("channel").setDescription("Channel for the verification panel").setRequired(true).addChannelTypes(ChannelType.GuildText)), execute: async (i) => {
     if (!(await requirePerm(i, "config.manage"))) return;
-    const channel = i.options.getChannel("channel", true);
+    const channel = i.options.getChannel("channel", true) as import("discord.js").TextChannel;
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
       new ButtonBuilder().setCustomId("overland:verify:start").setLabel("Verify account").setStyle(ButtonStyle.Success)
     );
