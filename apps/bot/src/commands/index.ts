@@ -1,5 +1,5 @@
 import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
-import { prisma } from "../lib/db.js";
+import { prisma, audit } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
 import { getInfoContent } from "../lib/config.js";
@@ -16,7 +16,7 @@ import { staffVerify } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
 import { assignRole } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
-import { getModerationConfig, lockdownOn, lockdownOff, isLockdownActive } from "../modules/moderation/service.js";
+import { getModerationConfig, updateModerationConfig, lockdownOn, lockdownOff, isLockdownActive, kickMember, banMember, unbanMember, getModerationHistory } from "../modules/moderation/service.js";
 
 export interface Command { data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder; execute: (i: ChatInputCommandInteraction) => Promise<void>; }
 
@@ -215,7 +215,13 @@ function securityCmd(): Command {
   return {
     data: new SlashCommandBuilder().setName("security").setDescription("Inspect and control server security")
       .addSubcommand((s) => s.setName("status").setDescription("Show active security settings"))
-      .addSubcommand((s) => s.setName("lockdown").setDescription("Enable or disable server lockdown").addStringOption((o) => o.setName("action").setDescription("Lockdown action").setRequired(true).addChoices({ name: "Enable", value: "enable" }, { name: "Disable", value: "disable" }))),
+      .addSubcommand((s) => s.setName("lockdown").setDescription("Enable or disable server lockdown").addStringOption((o) => o.setName("action").setDescription("Lockdown action").setRequired(true).addChoices({ name: "Enable", value: "enable" }, { name: "Disable", value: "disable" })))
+      .addSubcommand((s) => s.setName("configure").setDescription("Change automatic moderation thresholds")
+        .addIntegerOption((o) => o.setName("mention_limit").setDescription("Maximum mentions per message").setMinValue(1).setMaxValue(50))
+        .addIntegerOption((o) => o.setName("spam_max_messages").setDescription("Messages that trigger spam protection").setMinValue(3).setMaxValue(20))
+        .addIntegerOption((o) => o.setName("spam_window_seconds").setDescription("Spam detection window in seconds").setMinValue(2).setMaxValue(60))
+        .addBooleanOption((o) => o.setName("invite_filter").setDescription("Automatically remove Discord invite links"))
+        .addStringOption((o) => o.setName("suspicious_link_action").setDescription("Action for suspicious links").addChoices({ name: "Delete", value: "delete" }, { name: "Flag only", value: "flag" }))),
     execute: async (i) => {
       const sub = i.options.getSubcommand();
       if (sub === "status") {
@@ -227,11 +233,105 @@ function securityCmd(): Command {
       if (!(await requirePerm(i, "moderation.action"))) return;
       await i.deferReply({ ephemeral: true });
       try {
-        const action = i.options.getString("action", true);
-        if (action === "enable") await lockdownOn(i.user.id, i.guild ?? undefined);
-        else await lockdownOff(i.user.id, i.guild ?? undefined);
-        await i.editReply({ embeds: [overlandEmbed("Security updated", action === "enable" ? "Server lockdown is active. @everyone cannot send messages in text channels." : "Server lockdown has been disabled.")] });
+        if (sub === "lockdown") {
+          const action = i.options.getString("action", true);
+          if (action === "enable") await lockdownOn(i.user.id, i.guild ?? undefined);
+          else await lockdownOff(i.user.id, i.guild ?? undefined);
+          await i.editReply({ embeds: [overlandEmbed("Security updated", action === "enable" ? "Server lockdown is active. Existing channel permissions will be restored when it is disabled." : "Server lockdown has been disabled.")] });
+          return;
+        }
+        const patch = {
+          maxMentions: i.options.getInteger("mention_limit") ?? undefined,
+          spamMaxMessages: i.options.getInteger("spam_max_messages") ?? undefined,
+          spamWindowSeconds: i.options.getInteger("spam_window_seconds") ?? undefined,
+          inviteFilter: i.options.getBoolean("invite_filter") ?? undefined,
+          suspiciousLinkAction: (i.options.getString("suspicious_link_action") ?? undefined) as "delete" | "flag" | undefined,
+        };
+        if (Object.values(patch).every((value) => value === undefined)) {
+          await i.editReply({ embeds: [errorEmbed("Provide at least one setting to change.")] });
+          return;
+        }
+        const updated = await updateModerationConfig(i.user.id, patch);
+        await i.editReply({ embeds: [overlandEmbed("Security settings saved", "Mention limit: " + updated.maxMentions + "\nSpam threshold: " + updated.spamMaxMessages + " / " + updated.spamWindowSeconds + "s\nInvite filter: " + (updated.inviteFilter ? "On" : "Off") + "\nSuspicious links: " + updated.suspiciousLinkAction)] });
       } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Security action failed.")] }); }
+    },
+  };
+}
+function kickCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("kick").setDescription("Staff: remove a member from the server").addUserOption((o) => o.setName("member").setDescription("Member to kick").setRequired(true)).addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(true)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "moderation.action"))) return;
+      await i.deferReply({ ephemeral: true });
+      try {
+        const target = i.options.getUser("member", true);
+        await ensureMember(target.id, target.username);
+        await kickMember(target.id, i.user.id, i.options.getString("reason", true), i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Member kicked", target.username + " was removed from the server.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Kick failed.")] }); }
+    },
+  };
+}
+function banCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("ban").setDescription("Staff: ban a member from the server").addUserOption((o) => o.setName("member").setDescription("Member to ban").setRequired(true)).addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(true)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "moderation.action"))) return;
+      await i.deferReply({ ephemeral: true });
+      try {
+        const target = i.options.getUser("member", true);
+        await ensureMember(target.id, target.username);
+        await banMember(target.id, i.user.id, i.options.getString("reason", true), i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Member banned", target.username + " was banned from the server.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Ban failed.")] }); }
+    },
+  };
+}
+function unbanCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("unban").setDescription("Staff: unban a Discord user").addStringOption((o) => o.setName("user_id").setDescription("Discord user ID").setRequired(true)).addStringOption((o) => o.setName("reason").setDescription("Reason").setRequired(true)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "moderation.action"))) return;
+      await i.deferReply({ ephemeral: true });
+      try {
+        const id = i.options.getString("user_id", true);
+        if (!/^\d{17,20}$/.test(id)) throw new Error("Enter a valid Discord user ID.");
+        const target = await i.client.users.fetch(id);
+        await ensureMember(target.id, target.username);
+        await unbanMember(target.id, i.user.id, i.options.getString("reason", true), i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Member unbanned", target.username + " has been unbanned.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Unban failed.")] }); }
+    },
+  };
+}
+function modHistoryCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("mod-history").setDescription("Staff: view a member's moderation history").addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "moderation.view"))) return;
+      await i.deferReply({ ephemeral: true });
+      const target = i.options.getUser("member", true);
+      const history = await getModerationHistory(target.id);
+      const lines = history.slice(0, 10).map((row: { type: string; reason: string | null; createdAt: Date; actorId: string }) =>
+        row.type + " | " + (row.reason ?? "No reason") + " | " + row.createdAt.toISOString().slice(0, 10) + " | by " + row.actorId);
+      await i.editReply({ embeds: [overlandEmbed("Moderation history: " + target.username, lines.join("\n") || "No recorded moderation actions.")] });
+    },
+  };
+}
+function purgeCmd(): Command {
+  return {
+    data: new SlashCommandBuilder().setName("purge").setDescription("Staff: bulk-delete recent messages").addIntegerOption((o) => o.setName("amount").setDescription("Number of messages (2-100)").setRequired(true).setMinValue(2).setMaxValue(100)),
+    execute: async (i) => {
+      if (!(await requirePerm(i, "moderation.action"))) return;
+      const channel = i.channel;
+      if (!channel || !("bulkDelete" in channel)) { await i.reply({ ephemeral: true, embeds: [errorEmbed("This command only works in a text channel.")] }); return; }
+      await i.deferReply({ ephemeral: true });
+      try {
+        const amount = i.options.getInteger("amount", true);
+        const deleted = await channel.bulkDelete(amount, true);
+        await audit(i.user.id, "moderation.purge", "Channel", channel.id, { requested: amount, deleted: deleted.size });
+        await i.editReply({ embeds: [overlandEmbed("Messages deleted", "Deleted " + deleted.size + " recent messages. Discord does not bulk-delete messages older than 14 days.")] });
+      } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Purge failed.")] }); }
     },
   };
 }
@@ -245,7 +345,7 @@ export const commands: Command[] = [
   simpleCmd("updates", "Latest Overland updates", (i) => replyInfo(i, "updates", "Updates")),
   simpleCmd("faq", "Frequently asked questions", (i) => replyInfo(i, "faq", "FAQ")),
   simpleCmd("opportunities", "Open opportunities", (i) => replyInfo(i, "opportunities", "Opportunities")),
-  socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(),
+  socialsCmd(), linkCmd(), welcomeCmd(), setupCmd(), securityCmd(), kickCmd(), banCmd(), unbanCmd(), modHistoryCmd(), purgeCmd(),
   { data: new SlashCommandBuilder().setName("help").setDescription("List Overland Core commands"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Overland Core commands", commands.map((c: Command) => `/${c.data.name} - ${c.data.description}`).join("\n"))] }); } },
   { data: new SlashCommandBuilder().setName("invite").setDescription("Get your personal referral invite link"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
