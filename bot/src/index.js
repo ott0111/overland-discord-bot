@@ -370,24 +370,6 @@ client.on(Events.MessageCreate, (message) => {
   config.stats.messages += 1;
 });
 
-client.on(Events.GuildBanAdd, async (ban) => {
-  await logAction(ban.guild, "Ban", ban.user.tag, "Discord audit event", "Member banned");
-});
-
-client.on(Events.GuildMemberUpdate, async (oldMember, newMember) => {
-  const oldTimeout = oldMember.communicationDisabledUntilTimestamp || 0;
-  const newTimeout = newMember.communicationDisabledUntilTimestamp || 0;
-  if (newTimeout > oldTimeout) {
-    await logAction(
-      newMember.guild,
-      "Timeout",
-      newMember.user.tag,
-      "Discord audit event",
-      "Timeout applied or extended",
-      new Date(newTimeout).toLocaleString()
-    );
-  }
-});
 
 const saveInterval = setInterval(() => {
   saveStore();
