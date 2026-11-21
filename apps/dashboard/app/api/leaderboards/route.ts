@@ -12,7 +12,7 @@ const FIELDS: Record<string, string> = {
 };
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "analytics.view");
   if (error) return error;
   const params = new URL(req.url).searchParams;
   const category = params.get("category") ?? "overall";
