@@ -67,7 +67,7 @@ export async function awardHelpful(memberId: string, reference: string, actorId?
   });
 }
 
-export async function awardEvent(memberId: string, eventId: string) {
+export async function awardEvent(memberId: string, eventId: string, actorId?: string) {
   const values = pointValues(await getPointValues());
   return awardPointsWithinDailyLimit({
     memberId,
@@ -76,11 +76,12 @@ export async function awardEvent(memberId: string, eventId: string) {
     amount: values.community.eventParticipation ?? 15,
     source: "EVENT",
     reason: "Event participation: " + eventId,
+    actorId,
     idempotencyKey: "event-" + eventId + "-" + memberId,
   });
 }
 
-export async function awardWeeklyChallenge(memberId: string, weekKey: string) {
+export async function awardWeeklyChallenge(memberId: string, weekKey: string, actorId?: string) {
   const values = pointValues(await getPointValues());
   return awardPointsWithinDailyLimit({
     memberId,
@@ -89,6 +90,7 @@ export async function awardWeeklyChallenge(memberId: string, weekKey: string) {
     amount: values.community.weeklyChallenge ?? 20,
     source: "WEEKLY_CHALLENGE",
     reason: "Weekly challenge completed: " + weekKey,
+    actorId,
     idempotencyKey: "weekly-" + weekKey + "-" + memberId,
   });
 }
