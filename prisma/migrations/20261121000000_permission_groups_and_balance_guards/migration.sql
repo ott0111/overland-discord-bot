@@ -37,3 +37,8 @@ CREATE INDEX "referral_invites_memberId_revokedAt_idx" ON "referral_invites"("me
 ALTER TABLE "referral_invites"
   ADD CONSTRAINT "referral_invites_memberId_fkey"
   FOREIGN KEY ("memberId") REFERENCES "discord_members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+
+-- Track what kind of work each campaign submission represents.
+ALTER TABLE "campaign_submissions"
+  ADD COLUMN "category" TEXT NOT NULL DEFAULT 'social';
