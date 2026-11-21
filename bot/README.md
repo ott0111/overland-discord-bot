@@ -1,42 +1,52 @@
 # Overland Finance Discord Bot
 
-A lightweight Discord.js bot for Overland Finance. The bot is plain JavaScript and stores server settings in a local JSON file. It does not need Prisma, PostgreSQL, Redis, or a dashboard to run.
+Plain JavaScript, Discord.js v14, JSON persistence. No PostgreSQL, Prisma, Redis, TypeScript, or dashboard dependency for the bot runtime.
 
-## Run it
+## Hosting setup
 
-1. Use Node.js 20 or newer.
-2. Open this folder: \`cd bot\`
-3. Install dependencies: \`npm install\`
-4. Copy \`.env.example\` to \`.env\` and add your Discord bot token and application client ID.
-5. Start the bot: \`npm start\`
+Set the host's **working directory / root directory** to `bot`.
 
-Slash commands are synced automatically when the bot starts. Set \`DISCORD_GUILD_ID\` while testing so updates appear in that server immediately. Without it, commands are registered globally and can take longer to appear.
+- Install command: `npm install`
+- Startup command: `npm start`
+- Node.js: 20 or newer
+- Persistent data directory: `bot/data/` (contains `overland.json`)
+
+Add these environment variables in the hosting panel:
+- `DISCORD_TOKEN`: bot token from Discord Developer Portal.
+- `DISCORD_CLIENT_ID`: Application ID, not the bot token or server ID.
+- `DISCORD_GUILD_ID`: Your test server ID. Strongly recommended while setting up.
+- `OVERLAND_OWNER_DISCORD_ID`: Your Discord user ID to bootstrap the first Owner.
+- `OVERLAND_OWNER_USERNAME`: Optional display name.
+- `X_BEARER_TOKEN`: Optional X API bearer token.
+
+The bot loads all command modules and registers them automatically after connecting. You can also run `npm run register` manually.
+
+## Why slash commands sometimes do not appear
+
+1. Invite the bot using both OAuth scopes: `bot` and `applications.commands`.
+2. Make sure `DISCORD_CLIENT_ID` is the Application ID belonging to the exact token in `DISCORD_TOKEN`.
+3. Set `DISCORD_GUILD_ID` to the server ID where you are testing. Guild commands appear quickly; global commands can take up to an hour.
+4. Re-invite the bot if the original invite did not include `applications.commands`.
+5. Read startup logs. The bot prints the command count, target application/guild, HTTP status, and Discord error code if registration fails.
+6. Do not run multiple bot copies with different tokens or app IDs against the same server while testing.
 
 ## Commands
 
-- \`/setup\` - view current server configuration
-- \`/autorole set\` and \`/autorole clear\`
-- \`/welcome set\` and \`/welcome disable\`
-- \`/modlog set\` and \`/modlog disable\`
-- \`/ticket-setup\` - publish the branded ticket panel
-- \`/analytics\` - view member, join, leave, and message totals
-- \`/warn\`, \`/kick\`, \`/ban\`, \`/timeout\`, \`/purge\`
+Commands are individual files under `src/commands/<category>/`. The loader recursively discovers every `.js` command file. Each file exports a default object with a SlashCommandBuilder and an execute function. No central command list needs editing.
 
-## Discord setup
+Categories include moderation, roles, economy, campaigns, rewards, referrals, community, and admin.
 
-Invite the bot with the \`bot\` and \`applications.commands\` scopes. Grant only the permissions it needs: View Channels, Send Messages, Embed Links, Read Message History, Manage Roles, Manage Channels, Kick Members, Ban Members, Moderate Members, and Manage Messages.
+## Systems
 
-Enable the **Server Members Intent** in the Discord Developer Portal for auto roles and welcome messages. Message Content Intent is not required.
+- Internal team permission groups with Owner bootstrap; public roles never grant internal permissions.
+- Citizen verification, Comrade X-follow verification, role history, role progression and Discord role mappings.
+- Overpoints and Overcredits, daily check-ins, streak bonuses, category balances, daily earning limits and transaction history.
+- Campaign creation, submissions, staff review and automatic category rewards.
+- Reward catalogue, Overcredit claims, staff approval/rejection and automatic refunds.
+- Referral invite tracking, verification rewards, seven-day retention and Comrade conversion bonuses.
+- Lifetime, weekly and monthly leaderboards; profiles and achievements.
+- Editable information pages and social links, welcome messages, tickets, moderation logs, analytics, polls, spotlight and X announcements.
 
-Place the bot's highest role above any role it needs to assign or moderate.
+## Important storage note
 
-## Data and branding
-
-Settings and basic analytics are stored in \`bot/data/guilds.json\`. Keep this folder on persistent storage and back it up if you need to preserve configuration between host migrations.
-
-Embeds use the Overland Finance palette:
-- Emerald: \`#00C982\`
-- Lime: \`#C5E86C\`
-- Deep green-black surfaces, white text, and muted grey supporting text
-
-The embed helper lives in \`src/embeds.js\`, so the visual style stays consistent across welcome messages, tickets, moderation logs, analytics, and setup replies.
+The JSON file is suitable for a single running bot instance on a host with persistent disk. Do not run multiple bot instances against the same JSON file. If the host wipes its filesystem on restart, attach persistent storage or back up `data/overland.json`.
