@@ -24,7 +24,7 @@ async function main() {
   for (const [key,name,desc,kind,op,oc] of achievements) await prisma.achievement.upsert({ where: { key }, update: {}, create: { key, name, description: desc, kind: kind as never, overpointsReward: op, overcreditsReward: oc } });
   const configs: Record<string, unknown> = {
     pointValues: DEFAULT_POINT_VALUES, dailyLimits: { overpoints: 100, overcredits: 100 },
-    verification: { minAccountAgeDays: 7, requireCaptcha: true, requireAvatar: false },
+    verification: { minAccountAgeDays: 7, requireCaptcha: true, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
     moderation: { profanityFilter: true, profanityWords: [], inviteFilter: true, maxMentions: 5, spamWindowSeconds: 10, spamMaxMessages: 5, suspiciousLinkAction: "delete" },
     xIntegration: { enabled: false, username: "OverlandFinance", ignoreReplies: true, ignoreReposts: true, pollMinutes: 15 },
     infoContent: { about: "Overland Finance is the commerce layer for digital dollars.", links: "https://overland-finance.vercel.app/", team: "Founder led team.", roadmap: "See our website for the latest roadmap.", updates: "No updates yet.", faq: "Ask in support.", opportunities: "Partnerships open.", socials: "X: @OverlandFinance" },
