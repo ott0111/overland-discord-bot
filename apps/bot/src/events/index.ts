@@ -3,7 +3,8 @@ import { prisma, audit } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { overlandEmbed } from "../lib/embeds.js";
 import { hashMessage } from "../lib/antifraud.js";
-import { awardPoints } from "../lib/points.js";
+import { awardParticipation } from "../modules/economy/service.js";
+import { checkProgression } from "../modules/roles/service.js";
 import { getModerationConfig, checkMessage } from "../modules/moderation/service.js";
 import { getWelcomeSettings } from "../modules/settings/service.js";
 import { recordJoin } from "../modules/referrals/service.js";
@@ -152,10 +153,14 @@ export function registerEvents(client: Client): void {
         where: { memberId: member.id, source: "PARTICIPATION", createdAt: { gte: today } },
       });
       if (earned < 10) {
-        await awardPoints({
-          memberId: member.id, currency: "OVERPOINTS", category: "community", amount: 2,
-          source: "PARTICIPATION", reason: "Meaningful participation", idempotencyKey: "msg-" + msg.id,
-        }).catch(() => undefined);
+        const award = await awardParticipation(member.id, msg.id).catch((err) => {
+          logger.warn({ err, memberId: member.id }, "Participation reward was not issued");
+          return null;
+        });
+        if (award && !award.duplicate) {
+          await checkProgression(member.id, "system", msg.guild).catch((err) =>
+            logger.warn({ err, memberId: member.id }, "Role progression check failed"));
+        }
       }
     } catch (err) {
       logger.error({ err }, "MessageCreate handler failed");
