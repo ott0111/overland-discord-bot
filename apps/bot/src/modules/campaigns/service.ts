@@ -151,10 +151,12 @@ export async function reviewSubmission(
   if (!submission) throw new Error("Submission not found");
   if (submission.status !== "PENDING") throw new Error(`Submission was already ${submission.status.toLowerCase()}`);
   if (!approve) {
-    const rejected = await prisma.campaignSubmission.update({
-      where: { id: submissionId },
+    const transition = await prisma.campaignSubmission.updateMany({
+      where: { id: submissionId, status: "PENDING" },
       data: { status: "REJECTED", feedback: feedback ?? null, reviewedBy: staffDiscordId, reviewedAt: new Date() },
     });
+    if (transition.count !== 1) throw new Error("Submission was already reviewed");
+    const rejected = await prisma.campaignSubmission.findUniqueOrThrow({ where: { id: submissionId } });
     await audit(staffDiscordId, "campaigns.review.reject", "CampaignSubmission", submissionId, { feedback });
     return { submission: rejected, awarded: null };
   }
@@ -163,8 +165,8 @@ export async function reviewSubmission(
   const amount = pointsOverride ?? submission.campaign.pointReward ?? fallback;
   if (amount < 0) throw new Error("Award amount must not be negative");
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-    const updated = await tx.campaignSubmission.update({
-      where: { id: submissionId },
+    const transition = await tx.campaignSubmission.updateMany({
+      where: { id: submissionId, status: "PENDING" },
       data: {
         status: "APPROVED",
         feedback: feedback ?? null,
@@ -173,6 +175,8 @@ export async function reviewSubmission(
         reviewedAt: new Date(),
       },
     });
+    if (transition.count !== 1) throw new Error("Submission was already reviewed");
+    const updated = await tx.campaignSubmission.findUniqueOrThrow({ where: { id: submissionId } });
     let awarded: unknown = null;
     if (amount > 0) {
       awarded = await awardPoints(
