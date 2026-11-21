@@ -42,3 +42,8 @@ ALTER TABLE "referral_invites"
 -- Track what kind of work each campaign submission represents.
 ALTER TABLE "campaign_submissions"
   ADD COLUMN "category" TEXT NOT NULL DEFAULT 'social';
+
+
+-- Prevent duplicate leaderboard rows when scheduled snapshots are retried.
+CREATE UNIQUE INDEX "leaderboard_snapshots_period_category_periodKey_memberId_key"
+  ON "leaderboard_snapshots"("period", "category", "periodKey", "memberId");
