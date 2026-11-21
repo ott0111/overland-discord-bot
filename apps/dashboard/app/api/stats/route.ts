@@ -10,7 +10,7 @@ function startOfDay(d: Date): Date {
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "analytics.view");
   if (error) return error;
   const zeros = {
     members: 0, openTickets: 0, pendingClaims: 0, pendingSubmissions: 0,
