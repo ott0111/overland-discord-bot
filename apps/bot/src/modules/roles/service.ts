@@ -158,10 +158,18 @@ export async function checkProgression(memberId: string, actorId: string, guild?
   const thresholds = await progressionConfig();
   const balance = await prisma.pointBalance.findUnique({ where: { memberId } });
   const creativeSubmissions = await prisma.campaignSubmission.count({
-    where: { memberId, status: "APPROVED", category: "creative" },
+    where: {
+      memberId,
+      status: "APPROVED",
+      category: { in: ["creative", "graphic_design", "infographic", "video", "article", "social_post"] },
+    },
   });
   const researchPoints = await prisma.campaignSubmission.aggregate({
-    where: { memberId, status: "APPROVED", category: { in: ["research", "education"] } },
+    where: {
+      memberId,
+      status: "APPROVED",
+      category: { in: ["research", "education", "industry_research", "educational_thread", "contribution_article"] },
+    },
     _sum: { pointsAwarded: true },
   });
   const granted: string[] = [];
