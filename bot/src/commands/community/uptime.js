@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("uptime").setDescription("View how long Overland Core has been online"),async i=>{const s=Math.floor(process.uptime()),h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;return i.reply({embeds:[embed("OVERLAND CORE  /  UPTIME","Online for **"+h+"h "+m+"m "+r+"s**.")],ephemeral:true});});
