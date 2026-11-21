@@ -137,8 +137,11 @@ export async function DELETE(req: Request) {
     if (existing.group.name === "Owner" && existing.status === "ACTIVE" && await activeOwnerCount() <= 1) {
       return NextResponse.json({ error: "The last active Owner cannot be removed" }, { status: 409 });
     }
-    await prisma.internalTeamMember.delete({ where: { id } });
-    await writeAudit(session?.discordId ?? null, "team.remove", "InternalTeamMember", id, { username: existing.username });
+    await prisma.internalTeamMember.update({
+      where: { id },
+      data: { status: "REMOVED" },
+    });
+    await writeAudit(session?.discordId ?? null, "team.remove", "InternalTeamMember", id, { username: existing.username, status: "REMOVED" });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Unable to remove team member" }, { status: 503 });
