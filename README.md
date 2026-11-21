@@ -1,36 +1,26 @@
-# Overland Core
+# Overland Finance
 
-Central operating system for the Overland Finance Discord community. Discord bot (persistent Gateway process, Discord.js v14, TypeScript), PostgreSQL + Prisma, Next.js admin dashboard with Discord OAuth2 and RBAC, BullMQ/Redis jobs with in-memory fallback.
+Overland Finance uses a standalone Discord bot written in plain JavaScript in `bot/`. The bot stores community data in JSON and does not require a database to run.
 
-## Quick start
+## Start the bot
 
-1. Copy `.env.example` to `.env` and fill in credentials (see docs/SETUP.md).
-2. `npm install`
-3. `npx prisma migrate deploy` (or `prisma db push` for first setup) then `npm run db:seed`
-4. `npm --workspace apps/bot run deploy-commands`
-5. `npm run dev:bot` in one terminal, `npm run dev:dashboard` in another.
+```bash
+cd bot
+npm install
+cp .env.example .env
+npm start
+```
 
-## Structure
+Set `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, and `DISCORD_GUILD_ID` in `bot/.env`. The bot automatically loads commands from `bot/src/commands/<category>/` and registers them after connecting.
 
-- `apps/bot` Discord bot, editable setup commands, moderation, modules, events, durable jobs, tests
-- `apps/dashboard` Next.js admin dashboard (17 sections)
-- `packages/shared` Brand, roles, permissions, point values
-- `prisma` Schema, initial migration, seed
-- `docs` Setup, deployment, commands, architecture
+See [bot/README.md](bot/README.md) for hosting setup, command registration troubleshooting, permissions, and the feature list.
 
-## Brand
+## Repository structure
 
-Emerald #00C982, Lime Yellow #C5E86C, dark backgrounds, white and muted grey type. No em dash character in bot content.
+- `bot/`: JavaScript Discord bot and JSON storage.
+- `apps/dashboard/`: separate Next.js dashboard.
+- `packages/shared/`: shared definitions.
+- `prisma/`: dashboard data schema and migrations.
+- `docs/`: setup, deployment, architecture, and community-system documentation.
 
-## Editable Discord configuration
-
-Staff can manage saved HTTPS links with `/link add`, `/link edit` and `/link remove`; `/socials` publishes them as a branded embed with URL buttons. `/welcome setup`, `/ticket-setup`, `/verification-setup`, `/x-setup` and `/security configure` manage persistent settings without source edits. See [docs/COMMANDS.md](docs/COMMANDS.md).
-
-## Credentials required
-
-Discord bot token, Discord client ID and secret, guild ID, PostgreSQL URL, Redis URL (optional), X bearer token (optional, required only for X integration).
-
-
-## Community system
-
-See [docs/COMMUNITY_SYSTEM.md](docs/COMMUNITY_SYSTEM.md) for role definitions, internal permissions, earning values, daily limits, referrals, rewards, campaigns, leaderboards, X integration and first-time setup.
+The TypeScript Discord bot workspace has been removed. The dashboard and its Prisma schema remain separate from the bot runtime.
