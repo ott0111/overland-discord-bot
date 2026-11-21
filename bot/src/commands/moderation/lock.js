@@ -1,0 +1,3 @@
+import {SlashCommandBuilder,PermissionFlagsBits} from "discord.js";
+import {command,reply,requireDiscordPerm,logModeration} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("lock").setDescription("Lock the current text channel").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels).addStringOption(o=>o.setName("reason").setDescription("Reason")),async i=>{requireDiscordPerm(i,PermissionFlagsBits.ManageChannels);await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:false});const r=i.options.getString("reason")||"Channel locked";await logModeration(i,"CHANNEL_LOCK",{id:i.channel.id,tag:"#"+i.channel.name},r);await reply(i,"Channel locked","Posting has been disabled for @everyone.\nReason: "+r,false);});

@@ -1,0 +1,10 @@
+import { SlashCommandBuilder, PermissionFlagsBits } from "discord.js";
+import { command, reply, requirePerm } from "../helpers.js";
+import { getGuild, saveStore } from "../../store.js";
+export default command(new SlashCommandBuilder().setName("lockdown").setDescription("Temporarily restrict sending messages across the server")
+ .addSubcommand(s=>s.setName("enable").setDescription("Enable server-wide text lockdown"))
+ .addSubcommand(s=>s.setName("disable").setDescription("Restore channel permissions saved before lockdown")),
+ async i=>{requirePerm(i,"moderation.manage");const g=getGuild(i.guildId),cfg=g.settings;const sub=i.options.getSubcommand(),everyone=i.guild.roles.everyone.id;
+ if(sub==="enable"){if(cfg.lockdown?.active)throw new Error("Server lockdown is already active.");const previous={};for(const channel of i.guild.channels.cache.values()){if(!channel.isTextBased()||!channel.permissionOverwrites)continue;const overwrite=channel.permissionOverwrites.cache.get(everyone);previous[channel.id]=overwrite?(overwrite.allow.has(PermissionFlagsBits.SendMessages)?true:overwrite.deny.has(PermissionFlagsBits.SendMessages)?false:null):null;await channel.permissionOverwrites.edit(everyone,{SendMessages:false}).catch(()=>{});}cfg.lockdown={active:true,previous,startedAt:new Date().toISOString(),startedBy:i.user.id};await saveStore();return reply(i,"SERVER LOCKDOWN ENABLED","Text channels have been restricted for @everyone. Use **/lockdown disable** to restore the saved Send Messages permissions.");}
+ if(!cfg.lockdown?.active)throw new Error("There is no active Overland lockdown to restore.");let restored=0;for(const [channelId,value] of Object.entries(cfg.lockdown.previous||{})){const channel=await i.guild.channels.fetch(channelId).catch(()=>null);if(channel?.permissionOverwrites){await channel.permissionOverwrites.edit(everyone,{SendMessages:value}).then(()=>restored++).catch(()=>{});}}cfg.lockdown={active:false,previous:{},endedAt:new Date().toISOString(),endedBy:i.user.id};await saveStore();return reply(i,"SERVER LOCKDOWN LIFTED","Restored saved channel permissions in **"+restored+"** channels.");}
+);

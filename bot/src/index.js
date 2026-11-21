@@ -7,11 +7,12 @@ import {checkProgression,syncDiscordRole} from "./services/roles.js";
 import {recordJoin,processReferralMilestones} from "./services/referrals.js";
 import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
+import { registerAutomations } from "./services/automations.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
 const guildId=process.env.DISCORD_GUILD_ID||null;
-const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.GuildInvites]});
+const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.GuildInvites, GatewayIntentBits.GuildVoiceStates, GatewayIntentBits.MessageContent]});
 const commands=await loadCommands();
 const inviteCache=new Map();
 
@@ -27,6 +28,7 @@ function ownerBootstrap(){
 }
 async function syncCommands(appId){
  const body=[...commands.values()].map(c=>c.data.toJSON());
+ if(body.length>100)throw new Error("Discord application command limit exceeded: "+body.length+"/100.");
  const rest=new REST({version:"10"}).setToken(token);
  let route;
  if(guildId){
@@ -83,26 +85,47 @@ async function handleVerifyButton(i){
  m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
 }
-async function createTicket(i){
+async function createTicket(i,category="support"){
  const g=getGuild(i.guildId),guild=i.guild;
  const existing=guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.topic==="overland-ticket:"+i.user.id);
- if(existing)return i.reply({content:"You already have a ticket: "+existing,flags:MessageFlags.Ephemeral});
+ if(existing)return i.reply({embeds:[embed("SUPPORT  /  OPEN TICKET","You already have an active support room: "+existing)],flags:MessageFlags.Ephemeral});
  const support=g.settings.ticketSupportRoleId;
- const overwrites=[{id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},{id:i.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]},{id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]}];
- if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]});
- const ch=await guild.channels.create({name:"ticket-"+i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18),type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
- await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[embed("Ticket opened","Welcome "+i.user+". Explain what you need help with.")] ,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
- await i.reply({content:"Your ticket is ready: "+ch,flags:MessageFlags.Ephemeral});
+ const overwrites=[
+  {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+  {id:i.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]},
+  {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ReadMessageHistory]}
+ ];
+ if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]});
+ const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
+ const ch=await guild.channels.create({name:"ticket-"+category+"-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
+ const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
+ g.tickets.unshift(record);await saveStore();
+ const ticketEmbed=embed("OVERLAND SUPPORT  /  "+category.toUpperCase(),"Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
+  .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
+ await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[ticketEmbed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
+ await i.reply({embeds:[embed("TICKET CREATED","Your private support channel is ready: "+ch+"\nReference: **"+record.id+"**")],flags:MessageFlags.Ephemeral});
 }
 async function handleInteraction(i){
  try{
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
+  if(i.isStringSelectMenu()&&i.customId==="overland:ticket:category")return await createTicket(i,i.values[0]);
   if(i.isButton()&&i.customId==="overland:ticket:close"){
-   const owner=i.channel.topic?.replace("overland-ticket:",""),staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
-   if(owner!==i.user.id&&!staff)return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
-   await i.reply({content:"Ticket closed. This channel will be deleted shortly.",flags:MessageFlags.Ephemeral});
-   setTimeout(()=>i.channel.delete("Overland ticket closed").catch(()=>{}),4000);return;
+   const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
+   const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
+   if(!owner||(!topic.startsWith("overland-ticket:"))|| (owner!==i.user.id&&!staff))return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
+   const g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===i.channelId);
+   if(record){record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}
+   await i.channel.permissionOverwrites.edit(owner,{ViewChannel:true,SendMessages:false,ReadMessageHistory:true}).catch(()=>{});
+   await i.channel.setTopic("overland-ticket-closed:"+owner).catch(()=>{});
+   await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
+   if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
+   await saveStore();
+   await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
+   const feedbackRow=new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n=>new ButtonBuilder().setCustomId("overland:ticket:feedback:"+n).setLabel(n+" / 5").setStyle(n>=4?ButtonStyle.Success:ButtonStyle.Secondary))); 
+   await i.channel.send({embeds:[embed("HOW DID WE DO?","If you opened this ticket, rate your support experience below.")],components:[feedbackRow]}).catch(()=>{});
+   await i.channel.send({embeds:[embed("TICKET CLOSED","This ticket was closed by "+i.user+". Staff can still review its history.")] }).catch(()=>{});
+   return;
   }
   if(!i.isChatInputCommand())return;
   const c=commands.get(i.commandName);if(!c)return;
@@ -114,6 +137,7 @@ async function handleInteraction(i){
  }
 }
 client.on(Events.InteractionCreate,handleInteraction);
+registerAutomations(client);
 client.on(Events.GuildMemberAdd,async member=>{
  try{
   const g=getGuild(member.guild.id);g.stats.joins++;const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;

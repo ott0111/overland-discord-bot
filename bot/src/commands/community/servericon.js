@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("servericon").setDescription("Display the server icon"),async i=>{const url=i.guild.iconURL({size:1024});if(!url)throw new Error("This server does not have an icon set.");return i.reply({embeds:[embed("SERVER ICON  /  "+i.guild.name,"[Open full resolution]("+url+")").setImage(url)],ephemeral:true});});

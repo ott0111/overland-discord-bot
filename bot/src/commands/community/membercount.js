@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("membercount").setDescription("View the current server member count"),async i=>i.reply({embeds:[embed("COMMUNITY SIZE","Overland currently has **"+i.guild.memberCount.toLocaleString()+"** members.")],ephemeral:true}));

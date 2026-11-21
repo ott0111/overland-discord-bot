@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("serverbanner").setDescription("Display the server banner"),async i=>{const g=await i.guild.fetch(),url=g.bannerURL({size:1024});if(!url)throw new Error("This server does not have a banner set.");return i.reply({embeds:[embed("SERVER BANNER  /  "+g.name,"[Open full resolution]("+url+")").setImage(url)],ephemeral:true});});

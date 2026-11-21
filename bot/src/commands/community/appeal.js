@@ -1,0 +1,7 @@
+import { SlashCommandBuilder } from "discord.js";
+import { command, reply, embed } from "../helpers.js";
+import { getGuild, saveStore } from "../../store.js";
+export default command(new SlashCommandBuilder().setName("appeal").setDescription("Submit an appeal for a server moderation action")
+ .addStringOption(o=>o.setName("details").setDescription("Explain why the action should be reviewed").setMaxLength(1800).setRequired(true)),
+ async i=>{const g=getGuild(i.guildId);if(g.appeals.some(a=>a.userId===i.user.id&&a.status==="PENDING"))throw new Error("You already have an appeal awaiting review.");const rec={id:"A-"+Date.now().toString(36).toUpperCase(),userId:i.user.id,details:i.options.getString("details",true),status:"PENDING",createdAt:new Date().toISOString()};g.appeals.unshift(rec);await saveStore();const ch=g.settings.appealChannelId?await i.guild.channels.fetch(g.settings.appealChannelId).catch(()=>null):null;if(ch?.isTextBased())await ch.send({embeds:[embed("MODERATION APPEAL  /  "+rec.id,rec.details).addFields({name:"MEMBER",value:i.user.tag,inline:true},{name:"STATUS",value:"Pending review",inline:true})]});return reply(i,"APPEAL SUBMITTED","Your appeal has been recorded. Staff will review it when available.");}
+);

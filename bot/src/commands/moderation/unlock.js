@@ -1,0 +1,3 @@
+import {SlashCommandBuilder,PermissionFlagsBits} from "discord.js";
+import {command,reply,requireDiscordPerm,logModeration} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("unlock").setDescription("Unlock the current text channel").setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),async i=>{requireDiscordPerm(i,PermissionFlagsBits.ManageChannels);await i.channel.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:null});await logModeration(i,"CHANNEL_UNLOCK",{id:i.channel.id,tag:"#"+i.channel.name},"Channel unlocked");await reply(i,"Channel unlocked","The @everyone send-message override has been cleared.",false);});
