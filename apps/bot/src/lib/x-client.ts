@@ -14,9 +14,36 @@ export async function fetchRecentXPosts(username: string, sinceId?: string): Pro
   if (!userJson.data?.id) return [];
   const res = await fetch(`https://api.x.com/2/users/${userJson.data.id}/tweets?${params}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!res.ok) { logger.error({ status: res.status }, "X API timeline fetch failed"); return []; }
-  const json = (await res.json()) as { data?: Array<{ id: string; text: string; referenced_tweets?: Array<{ type: string }> }>; includes?: { media?: Array<{ media_key: string; url?: string; preview_image_url?: string }> } };
+  const json = (await res.json()) as {
+    data?: Array<{
+      id: string;
+      text: string;
+      referenced_tweets?: Array<{ type: string }>;
+      attachments?: { media_keys?: string[] };
+    }>;
+    includes?: {
+      media?: Array<{ media_key: string; type?: string; url?: string; preview_image_url?: string }>;
+    };
+  };
+  const mediaByKey = new Map(
+    (json.includes?.media ?? []).map((media) => [
+      media.media_key,
+      media.url ?? media.preview_image_url ?? "",
+    ]),
+  );
   return (json.data ?? []).map((t) => {
     const refs = t.referenced_tweets ?? [];
-    return { id: t.id, text: t.text, authorUsername: username, url: `https://x.com/${username}/status/${t.id}`, mediaUrls: [], isReply: refs.some((r) => r.type === "replied_to"), isRepost: refs.some((r) => r.type === "retweeted") };
+    const mediaUrls = (t.attachments?.media_keys ?? [])
+      .map((key) => mediaByKey.get(key) ?? "")
+      .filter((url): url is string => Boolean(url));
+    return {
+      id: t.id,
+      text: t.text,
+      authorUsername: username,
+      url: `https://x.com/${username}/status/${t.id}`,
+      mediaUrls,
+      isReply: refs.some((r) => r.type === "replied_to"),
+      isRepost: refs.some((r) => r.type === "retweeted"),
+    };
   });
 }
