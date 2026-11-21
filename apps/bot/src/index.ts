@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   });
   registerEvents(client);
   registerJobs(client);
-  await startWorkers();
+  await startWorkers().catch((err) => logger.warn({ err }, "Redis workers unavailable; queue will use in-memory fallback"));
   await client.login(env.DISCORD_TOKEN);
   await scheduleRecurring();
   logger.info("Overland Core is running. Gateway connected.");
