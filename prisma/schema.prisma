@@ -326,6 +326,7 @@ model CampaignSubmission {
   memberId      String
   member        DiscordMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
   content       String
+  category      String          @default("social")
   linkUrl       String?
   imageUrl      String?
   status        SubmissionStatus @default(PENDING)
