@@ -615,6 +615,18 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Claim update failed.")] });
     }
   } },
+  { data: new SlashCommandBuilder().setName("verification-panel").setDescription("Staff: publish the interactive Citizen verification panel").addChannelOption((o) => o.setName("channel").setDescription("Channel for the verification panel").setRequired(true).addChannelTypes(ChannelType.GuildText)), execute: async (i) => {
+    if (!(await requirePerm(i, "config.manage"))) return;
+    const channel = i.options.getChannel("channel", true);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("overland:verify:start").setLabel("Verify account").setStyle(ButtonStyle.Success)
+    );
+    await channel.send({
+      embeds: [overlandEmbed("Welcome to Overland Finance", "Complete verification to receive the **Citizen** role and unlock the community.\n\nNew accounts may be asked to complete a short challenge. One verification per member.")],
+      components: [row],
+    });
+    await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification panel published", "The onboarding panel is now live in " + channel + ".")] });
+  } },
   { data: new SlashCommandBuilder().setName("verify").setDescription("Start Discord verification"), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
     try {
