@@ -15,10 +15,10 @@ const DEFAULT_WELCOME: WelcomeSettings = {
   title: "Welcome to {server}, {user}!",
   message: "We're glad you're here. Read the rules and complete verification to get started.",
 };
-function normalizeKey(value: string): string {
+export function normalizeLinkKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").slice(0, 32);
 }
-function validateUrl(value: string): string {
+export function validateLinkUrl(value: string): string {
   let parsed: URL;
   try { parsed = new URL(value); } catch { throw new Error("Enter a valid full URL, including https://"); }
   if (parsed.protocol !== "https:") throw new Error("Only HTTPS links are allowed.");
@@ -35,9 +35,9 @@ export async function getSavedLinks(): Promise<SavedLink[]> {
 }
 export async function saveLink(actorId: string, label: string, url: string, keyInput?: string): Promise<SavedLink> {
   if (!(await hasPermission(actorId, "config.manage"))) throw new Error("You do not have permission to manage bot settings.");
-  const key = normalizeKey(keyInput || label);
+  const key = normalizeLinkKey(keyInput || label);
   if (!key || !label.trim()) throw new Error("A valid link name is required.");
-  const safeUrl = validateUrl(url);
+  const safeUrl = validateLinkUrl(url);
   const links = await getSavedLinks();
   const entry = { key, label: label.trim().slice(0, 80), url: safeUrl };
   const next = [...links.filter((x) => x.key !== key), entry].sort((a,b) => a.label.localeCompare(b.label));
@@ -48,7 +48,7 @@ export async function saveLink(actorId: string, label: string, url: string, keyI
 }
 export async function removeLink(actorId: string, keyInput: string): Promise<boolean> {
   if (!(await hasPermission(actorId, "config.manage"))) throw new Error("You do not have permission to manage bot settings.");
-  const key = normalizeKey(keyInput);
+  const key = normalizeLinkKey(keyInput);
   const links = await getSavedLinks();
   const next = links.filter((x) => x.key !== key);
   if (next.length === links.length) return false;
