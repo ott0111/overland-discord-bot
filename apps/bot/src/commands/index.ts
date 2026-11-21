@@ -667,6 +667,22 @@ export const commands: Command[] = [
     if (!c) { await i.editReply({ embeds: [errorEmbed("Campaign not found.")] }); return; }
     await i.editReply({ embeds: [overlandEmbed(c.name, `${c.description}\n\nObjectives: ${c.objectives ?? "See description."}\nTasks: ${c.tasks ? JSON.stringify(c.tasks).slice(0, 800) : "See description."}\nReward: ${c.pointReward} points\nStarts: ${c.startsAt.toISOString().slice(0, 10)}\nEnds: ${c.endsAt.toISOString().slice(0, 10)}\nRequirements: ${c.submissionRequirements ?? "None listed."}`)] });
   } },
+  { data: new SlashCommandBuilder().setName("campaign-gallery").setDescription("View approved community campaign submissions").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)), execute: async (i) => {
+    await i.deferReply();
+    try {
+      const submissions = await listSubmissions(i.options.getString("campaign", true), "APPROVED");
+      const visible = submissions.slice(0, 10);
+      const description = visible.map((submission) => {
+        const memberName = submission.member.user.username;
+        const link = submission.linkUrl ? "\n[View contribution](" + submission.linkUrl + ")" : "";
+        const image = submission.imageUrl ? "\n[Supporting image](" + submission.imageUrl + ")" : "";
+        return "**" + memberName + "** · " + submission.category + "\n" + submission.content.slice(0, 220) + link + image;
+      }).join("\n\n");
+      await i.editReply({ embeds: [overlandEmbed("Approved campaign contributions", description || "No approved submissions are public for this campaign yet.")] });
+    } catch (err) {
+      await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Could not load approved submissions.")] });
+    }
+  } },
   { data: new SlashCommandBuilder().setName("submit").setDescription("Submit work to a campaign").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)).addStringOption((o) => o.setName("content").setDescription("Describe your submission").setRequired(true)).addStringOption((o) => o.setName("category").setDescription("Type of contribution").addChoices({ name: "Community contribution", value: "community" }, { name: "Original X post", value: "social_post" }, { name: "Infographic", value: "infographic" }, { name: "Educational thread", value: "educational_thread" }, { name: "Article", value: "article" }, { name: "Campaign contribution", value: "campaign_contribution" }, { name: "Video", value: "video" }, { name: "Graphic or design", value: "graphic_design" }, { name: "Industry research", value: "industry_research" }, { name: "Contribution article", value: "contribution_article" }, { name: "Product feedback", value: "product_feedback" }, { name: "Community initiative", value: "community_initiative" }, { name: "Significant contribution", value: "significant_contribution" })).addStringOption((o) => o.setName("link").setDescription("Link to your work")).addStringOption((o) => o.setName("image_url").setDescription("HTTPS image URL supporting your submission")), execute: async (i) => {
     await i.deferReply({ ephemeral: true });
     const m = await ensureMember(i.user.id, i.user.username);
