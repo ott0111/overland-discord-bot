@@ -365,19 +365,23 @@ function verificationSetupCmd(): Command {
     data: new SlashCommandBuilder().setName("verification-setup").setDescription("Configure member verification")
       .addIntegerOption((o) => o.setName("minimum_account_age_days").setDescription("Minimum Discord account age").setMinValue(0).setMaxValue(365))
       .addBooleanOption((o) => o.setName("require_captcha").setDescription("Require the verification challenge"))
-      .addBooleanOption((o) => o.setName("require_avatar").setDescription("Require a Discord avatar")),
+      .addBooleanOption((o) => o.setName("require_avatar").setDescription("Require a Discord avatar"))
+      .addIntegerOption((o) => o.setName("anti_raid_window_minutes").setDescription("Anti-raid join window").setMinValue(1).setMaxValue(60))
+      .addIntegerOption((o) => o.setName("anti_raid_threshold").setDescription("Joins in the window that pause verification").setMinValue(3).setMaxValue(100)),
     execute: async (i) => {
       if (!(await requirePerm(i, "config.manage"))) return;
-      const current = await getConfig<{ minAccountAgeDays: number; requireCaptcha: boolean; requireAvatar?: boolean }>("verification", {
-        minAccountAgeDays: 7, requireCaptcha: true, requireAvatar: false,
+      const current = await getConfig<{ minAccountAgeDays: number; requireCaptcha: boolean; requireAvatar?: boolean; antiRaidWindowMinutes?: number; antiRaidThreshold?: number }>("verification", {
+        minAccountAgeDays: 7, requireCaptcha: true, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10,
       });
       const patch = {
         minAccountAgeDays: i.options.getInteger("minimum_account_age_days") ?? current.minAccountAgeDays,
         requireCaptcha: i.options.getBoolean("require_captcha") ?? current.requireCaptcha,
         requireAvatar: i.options.getBoolean("require_avatar") ?? current.requireAvatar ?? false,
+        antiRaidWindowMinutes: i.options.getInteger("anti_raid_window_minutes") ?? current.antiRaidWindowMinutes ?? 10,
+        antiRaidThreshold: i.options.getInteger("anti_raid_threshold") ?? current.antiRaidThreshold ?? 10,
       };
       if (i.options.getInteger("minimum_account_age_days") === null &&
-          i.options.getBoolean("require_captcha") === null && i.options.getBoolean("require_avatar") === null) {
+          i.options.getBoolean("require_captcha") === null && i.options.getBoolean("require_avatar") === null && i.options.getInteger("anti_raid_window_minutes") === null && i.options.getInteger("anti_raid_threshold") === null) {
         await i.reply({ ephemeral: true, embeds: [errorEmbed("Provide at least one verification setting to change.")] });
         return;
       }
@@ -387,7 +391,7 @@ function verificationSetupCmd(): Command {
       });
       clearConfigCache("verification");
       await audit(i.user.id, "settings.verification_update", "BotConfiguration", "verification", patch);
-      await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification settings saved", "Minimum account age: " + patch.minAccountAgeDays + " days\nCAPTCHA: " + (patch.requireCaptcha ? "Required" : "Disabled") + "\nAvatar: " + (patch.requireAvatar ? "Required" : "Optional"))] });
+      await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification settings saved", "Minimum account age: " + patch.minAccountAgeDays + " days\nCAPTCHA: " + (patch.requireCaptcha ? "Required" : "Disabled") + "\nAvatar: " + (patch.requireAvatar ? "Required" : "Optional") + "\nAnti-raid: " + patch.antiRaidThreshold + " joins / " + patch.antiRaidWindowMinutes + " minutes")] });
     },
   };
 }
