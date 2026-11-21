@@ -8,12 +8,14 @@ export interface WelcomeSettings {
   channelId: string | null;
   title: string;
   message: string;
+  sendDm: boolean;
 }
 const DEFAULT_WELCOME: WelcomeSettings = {
   enabled: true,
   channelId: null,
   title: "Welcome to {server}, {user}!",
   message: "We're glad you're here. Read the rules and complete verification to get started.",
+  sendDm: false,
 };
 export function normalizeLinkKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 32);
