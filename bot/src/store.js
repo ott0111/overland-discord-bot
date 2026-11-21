@@ -69,14 +69,14 @@ export function getGuild(guildId) {
 export function getMember(guildId, user) {
   const guild = getGuild(guildId);
   const id = typeof user === "string" ? user : user.id;
-  const username = typeof user === "string" ? id : (user.username || user.user?.username || id);
+  const username = typeof user === "string" ? null : (user.username || user.user?.username || id);
   if (!guild.members[id]) guild.members[id] = {
-    id, username, joinedAt: new Date().toISOString(), verifiedAt: null,
+    id, username: username || id, joinedAt: new Date().toISOString(), verifiedAt: null,
     xFollowVerified: false, roles: [], overpoints: 0, overcredits: 0,
     communityPoints: 0, socialPoints: 0, referralPoints: 0, contributionPoints: 0,
     streak: 0, lastCheckin: null, suspicious: false, achievements: []
   };
-  guild.members[id].username = username;
+  if (username) guild.members[id].username = username;
   return guild.members[id];
 }
 

@@ -1,6 +1,7 @@
 import test from "node:test";import assert from "node:assert/strict";import {loadStore,getGuild,getMember} from "../store.js";import {award} from "../services/economy.js";import {grantRole} from "../services/roles.js";import {createReward,claimReward,reviewClaim} from "../services/rewards.js";import {hasPermission} from "../services/permissions.js";
 await loadStore();
 const gid="test-"+Date.now(),user={id:"user-1",username:"Tester"};
+test("ID lookups preserve a member username",()=>{getMember(gid,user);getMember(gid,user.id);assert.equal(getMember(gid,user.id).username,"Tester");});
 test("public Discord roles never grant internal permissions",()=>{const g=getGuild(gid);g.members[user.id]=getMember(gid,user);g.members[user.id].roles=["Founder","Admin"];assert.equal(hasPermission(gid,user.id,"team.manage"),false);});
 test("public role assignment blocks internal roles",async()=>{await assert.rejects(()=>grantRole(gid,user,"Founder","staff"),/Internal roles/);});
 test("point awards are idempotent and respect daily caps",async()=>{const g=getGuild(gid);g.settings.dailyLimits.OVERPOINTS=20;const first=await award(gid,user,{amount:10,idempotencyKey:"same-award"});const duplicate=await award(gid,user,{amount:10,idempotencyKey:"same-award"});assert.equal(first.duplicate,false);assert.equal(duplicate.duplicate,true);await assert.rejects(()=>award(gid,user,{amount:15,idempotencyKey:"over-cap"}),/Daily/);});
