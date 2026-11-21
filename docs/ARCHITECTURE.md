@@ -248,21 +248,20 @@ neither exists yet.
 
 ## 11. Jobs and scheduling
 
-Jobs are registered in `apps/bot/src/jobs/index.ts` and run inside the
-bot process, not as separate cron jobs:
+Jobs are registered in apps/bot/src/jobs/index.ts and consumed by
+BullMQ workers inside the persistent bot process when Redis is configured:
 
-- `referral-retention`: 7 days after a verified referral, marks the
-  referral retained and awards the 10 point retention bonus.
-- `x-poll`: polls the X timeline immediately at startup and every
-  15 minutes after. The job id includes the hour, so a restart does
-  not double-poll the same hour.
-- `leaderboard-snapshot`: writes monthly and weekly top-100 snapshots.
-  Re-running for the same period key replaces the old rows, so the job
-  is idempotent and duplicate jobs cannot double count.
+- referral-retention: seven days after a referral is recorded, checks
+  that the referred member is verified and still present, then awards the
+  configured retention bonus once.
+- x-poll: polls the official X timeline at startup and at the configured
+  interval (15 minutes by default). Unannounced stored posts are retried
+  when the bot and announcement channel are available.
+- leaderboard-snapshot: registered for periodic leaderboard snapshots.
 
-`enqueue` dedupes by idempotency key in memory, and BullMQ dedupes by
-job id when Redis is configured. There is no separate scheduler process
-to keep in sync, and no job should be scheduled twice from two places.
+enqueue uses stable idempotency keys. BullMQ persists delayed jobs when
+Redis is configured. Without Redis, timers run in memory and delayed jobs
+are lost if the process restarts.
 
 ## 12. X integration
 
@@ -297,11 +296,13 @@ Welcome and Verification, Moderation and Security, Tickets, Points and
 Economy, Social Campaigns, Referrals, Rewards, Leaderboards,
 Achievements, Analytics, Bot Configuration.
 
-Authentication is Discord OAuth2. The callback exchanges the code for
-an access token, fetches `/users/@me`, then looks up the staff record.
-The session is a base64 JSON cookie (`overland_session`, httpOnly,
-secure in production, 24 hour lifetime) carrying Discord id, username,
-permission group and permission keys. API routes call `requireStaff`
+Authentication is Discord OAuth2 with a one-time, HttpOnly state cookie
+to protect the callback against login CSRF. The callback validates state,
+exchanges the code for an access token, fetches `/users/@me`, then looks up the staff record.
+The session is an HMAC-SHA256-signed cookie (`overland_session`, httpOnly,
+SameSite=Lax, secure in production, 24 hour lifetime) carrying Discord id,
+username, permission group and permission keys. The signature uses
+`DASHBOARD_SESSION_SECRET`, falling back to `NEXTAUTH_SECRET`. API routes call `requireStaff`
 with the permission key they need; a non-staff user gets a session with
 a null group and a 403 on every admin route. The dashboard has its own
 Prisma client singleton (`apps/dashboard/lib/prisma.ts`).
