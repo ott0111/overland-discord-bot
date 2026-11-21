@@ -18,9 +18,10 @@ ALTER TABLE "point_balances"
 
 -- Prevent a member from holding two pending claims for the same reward.
 -- The constraint is partial because completed/rejected claims remain as history.
-CREATE UNIQUE INDEX "reward_claims_one_pending_per_member_reward"
+DROP INDEX IF EXISTS "reward_claims_one_pending_per_member_reward";
+CREATE UNIQUE INDEX "reward_claims_one_active_per_member_reward"
   ON "reward_claims"("memberId", "rewardId")
-  WHERE "status" = 'PENDING';
+  WHERE "status" IN ('PENDING', 'APPROVED');
 
 
 -- Persist bot-created invite codes against the member who owns each link.
