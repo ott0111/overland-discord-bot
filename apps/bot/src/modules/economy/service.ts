@@ -100,7 +100,7 @@ export async function awardApprovedContribution(memberId: string, contributionId
   return awardPointsWithinDailyLimit({
     memberId,
     currency: "OVERPOINTS",
-    category: "contribution",
+    category: "community",
     amount: values.community.approvedContribution ?? 20,
     source: "CONTRIBUTION",
     reason: "Approved community contribution",
