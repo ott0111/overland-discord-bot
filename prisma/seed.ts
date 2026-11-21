@@ -1,6 +1,6 @@
 
 import { PrismaClient } from "@prisma/client";
-import { DEFAULT_POINT_VALUES, PERMISSIONS, PERMISSION_GROUPS } from "../packages/shared/src/index";
+import { DEFAULT_POINT_VALUES, DEFAULT_GROUP_PERMISSIONS, PERMISSIONS } from "../packages/shared/src/index";
 const prisma = new PrismaClient();
 async function main() {
   for (const name of ["Founder","Admin","Warden","Pioneer","Luminary","Creator","Intellect","Socialite","Comrade","Citizen"]) {
@@ -11,7 +11,14 @@ async function main() {
   const groupNames = ["Owner","Executive","Administration","Moderation","Development","Support","Rewards_Management"] as const;
   for (const g of groupNames) {
     const group = await prisma.permissionGroup.upsert({ where: { name: g as never }, update: {}, create: { name: g as never } });
-    if (g === "Owner") for (const key of PERMISSIONS) await prisma.permission.upsert({ where: { key_groupId: { key, groupId: group.id } }, update: {}, create: { key, groupId: group.id } });
+    const defaultKeys = g === "Owner" ? PERMISSIONS : (DEFAULT_GROUP_PERMISSIONS[g] ?? []);
+    for (const key of defaultKeys) {
+      await prisma.permission.upsert({
+        where: { key_groupId: { key, groupId: group.id } },
+        update: {},
+        create: { key, groupId: group.id },
+      });
+    }
   }
   const achievements: Array<[string,string,string,number,number]> = [
     ["first-verification","First Verification","Complete Discord verification","VERIFICATION",10,0],
