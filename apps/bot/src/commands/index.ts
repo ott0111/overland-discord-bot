@@ -12,7 +12,7 @@ import { createTicketChannel, claimTicket, closeTicket, findTicketByChannel, for
 import { getLeaderboard } from "../modules/leaderboards/service.js";
 import { announceManual } from "../modules/x-integration/service.js";
 import { getReferralStats } from "../modules/referrals/service.js";
-import { staffVerify } from "../modules/verification/service.js";
+import { staffVerify, startVerification, completeVerification } from "../modules/verification/service.js";
 import { warnMember, timeoutMember } from "../modules/moderation/service.js";
 import { assignRole } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
@@ -423,7 +423,33 @@ export const commands: Command[] = [
       await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Claim update failed.")] });
     }
   } },
-  { data: new SlashCommandBuilder().setName("verify").setDescription("Start Discord verification"), execute: async (i) => { await i.reply({ ephemeral: true, embeds: [overlandEmbed("Verification", "Click the verification button in the onboarding channel. Staff review may be required for suspicious accounts.")] }); } },
+  { data: new SlashCommandBuilder().setName("verify").setDescription("Start Discord verification"), execute: async (i) => {
+    await i.deferReply({ ephemeral: true });
+    try {
+      const member = await ensureMember(i.user.id, i.user.username);
+      const ageDays = (Date.now() - i.user.createdTimestamp) / 86400000;
+      const result = await startVerification(member.id, ageDays, Boolean(i.user.avatar), i.guildId ?? undefined);
+      if (!result.passed) {
+        await i.editReply({ embeds: [errorEmbed(result.reasons.join("\n"))] });
+        return;
+      }
+      if (!result.challenge) {
+        await completeVerification(member.id, null, "", ageDays, Boolean(i.user.avatar), i.user.id, i.guild ?? undefined);
+        await i.editReply({ embeds: [overlandEmbed("Verification complete", "You are now verified as a Citizen.")] });
+        return;
+      }
+      await i.editReply({ embeds: [overlandEmbed("Verification challenge", result.challenge.question + "\n\nUse /verify-answer with challenge ID: " + result.challenge.id + " and your answer. This challenge expires in 10 minutes.")] });
+    } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Verification could not start.")] }); }
+  } },
+  { data: new SlashCommandBuilder().setName("verify-answer").setDescription("Submit your verification challenge answer").addStringOption((o) => o.setName("challenge_id").setDescription("Challenge ID from /verify").setRequired(true)).addStringOption((o) => o.setName("answer").setDescription("Your answer").setRequired(true)), execute: async (i) => {
+    await i.deferReply({ ephemeral: true });
+    try {
+      const member = await ensureMember(i.user.id, i.user.username);
+      const ageDays = (Date.now() - i.user.createdTimestamp) / 86400000;
+      await completeVerification(member.id, i.options.getString("challenge_id", true), i.options.getString("answer", true), ageDays, Boolean(i.user.avatar), i.user.id, i.guild ?? undefined);
+      await i.editReply({ embeds: [overlandEmbed("Verification complete", "You are now verified as a Citizen. Welcome to Overland.")] });
+    } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Verification failed.")] }); }
+  } },
   { data: new SlashCommandBuilder().setName("verify-user").setDescription("Staff: verify a member and grant Citizen").addUserOption((o) => o.setName("member").setDescription("Member to verify").setRequired(true)), execute: async (i) => {
     if (!(await requirePerm(i, "roles.assign"))) return;
     await i.deferReply({ ephemeral: true });
