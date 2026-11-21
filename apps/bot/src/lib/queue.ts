@@ -1,23 +1,67 @@
-
 import { logger } from "./logger.js";
+
 export type JobHandler = (payload: Record<string, unknown>) => Promise<void>;
 const handlers = new Map<string, JobHandler>();
 const seen = new Set<string>();
-export function registerJob(name: string, handler: JobHandler): void { handlers.set(name, handler); }
-/** Duplicate-job prevention via idempotency key. Falls back to in-memory timers when Redis is absent. */
-export async function enqueue(name: string, payload: Record<string, unknown>, idempotencyKey: string, delayMs = 0): Promise<boolean> {
-  if (seen.has(idempotencyKey)) { logger.info({ name, idempotencyKey }, "Duplicate job skipped"); return false; }
-  seen.add(idempotencyKey);
-  const handler = handlers.get(name);
-  if (!handler) { logger.warn({ name }, "No job handler registered"); return false; }
-  if (process.env.REDIS_URL) {
-    try { const { Queue } = await import("bullmq"); const { default: IORedis } = await import("ioredis");
-      const conn = new (IORedis as unknown as new (...args: unknown[]) => any)(process.env.REDIS_URL, { maxRetriesPerRequest: null });
-      const q = new Queue(name, { connection: conn });
-      await q.add(name, payload, { jobId: idempotencyKey, delay: delayMs }); await q.close(); await conn.quit();
-      return true;
-    } catch (err) { logger.warn({ err }, "Redis queue failed, falling back to in-memory"); }
+const workers: Array<{ close: () => Promise<void> }> = [];
+
+export function registerJob(name: string, handler: JobHandler): void {
+  handlers.set(name, handler);
+}
+
+/** Start durable BullMQ consumers for every registered job type. */
+export async function startWorkers(): Promise<void> {
+  if (!process.env.REDIS_URL || workers.length) return;
+  const [{ Worker }, { default: IORedis }] = await Promise.all([import("bullmq"), import("ioredis")]);
+  const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
+  for (const [name, handler] of handlers) {
+    const worker = new Worker(name, async (job) => {
+      await handler((job.data ?? {}) as Record<string, unknown>);
+    }, { connection });
+    worker.on("failed", (job, err) => logger.error({ jobId: job?.id, name, err }, "Queue job failed"));
+    worker.on("error", (err) => logger.error({ name, err }, "Queue worker error"));
+    workers.push(worker);
   }
-  setTimeout(() => { handler(payload).catch((e) => logger.error({ err: e, name }, "Job failed")); }, delayMs);
+  logger.info({ workers: workers.length }, "BullMQ workers started");
+}
+
+/** Enqueue idempotently. Redis is durable; without Redis, use a local timer fallback. */
+export async function enqueue(
+  name: string,
+  payload: Record<string, unknown>,
+  idempotencyKey: string,
+  delayMs = 0,
+): Promise<boolean> {
+  const handler = handlers.get(name);
+  if (!handler) {
+    logger.warn({ name }, "No job handler registered");
+    return false;
+  }
+  if (seen.has(idempotencyKey)) {
+    logger.info({ name, idempotencyKey }, "Duplicate job skipped");
+    return false;
+  }
+  if (process.env.REDIS_URL) {
+    try {
+      const [{ Queue }, { default: IORedis }] = await Promise.all([import("bullmq"), import("ioredis")]);
+      const connection = new IORedis(process.env.REDIS_URL, { maxRetriesPerRequest: null });
+      const queue = new Queue(name, { connection });
+      await queue.add(name, payload, { jobId: idempotencyKey, delay: delayMs, removeOnComplete: 1000, removeOnFail: 5000 });
+      await queue.close();
+      await connection.quit();
+      seen.add(idempotencyKey);
+      return true;
+    } catch (err) {
+      logger.warn({ err, name }, "Redis enqueue failed; using in-memory fallback");
+    }
+  }
+  seen.add(idempotencyKey);
+  setTimeout(() => {
+    handler(payload).catch((err) => logger.error({ err, name }, "In-memory job failed"));
+  }, delayMs);
   return true;
+}
+
+export async function closeWorkers(): Promise<void> {
+  await Promise.all(workers.splice(0).map((worker) => worker.close().catch(() => undefined)));
 }
