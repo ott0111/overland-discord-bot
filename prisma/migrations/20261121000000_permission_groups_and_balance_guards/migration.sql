@@ -21,3 +21,19 @@ ALTER TABLE "point_balances"
 CREATE UNIQUE INDEX "reward_claims_one_pending_per_member_reward"
   ON "reward_claims"("memberId", "rewardId")
   WHERE "status" = 'PENDING';
+
+
+-- Persist bot-created invite codes against the member who owns each link.
+CREATE TABLE "referral_invites" (
+  "id" TEXT NOT NULL,
+  "memberId" TEXT NOT NULL,
+  "inviteCode" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "revokedAt" TIMESTAMP(3),
+  CONSTRAINT "referral_invites_pkey" PRIMARY KEY ("id")
+);
+CREATE UNIQUE INDEX "referral_invites_inviteCode_key" ON "referral_invites"("inviteCode");
+CREATE INDEX "referral_invites_memberId_revokedAt_idx" ON "referral_invites"("memberId", "revokedAt");
+ALTER TABLE "referral_invites"
+  ADD CONSTRAINT "referral_invites_memberId_fkey"
+  FOREIGN KEY ("memberId") REFERENCES "discord_members"("id") ON DELETE CASCADE ON UPDATE CASCADE;
