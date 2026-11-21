@@ -16,7 +16,7 @@ async function activeOwnerCount(): Promise<number> {
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "team.view");
   if (error) return error;
   try {
     const team = await prisma.internalTeamMember.findMany({
