@@ -146,6 +146,7 @@ model DiscordMember {
   transactions       PointTransaction[]
   referralsGiven     Referral[] @relation("Referrer")
   referralsReceived  Referral[] @relation("Referred")
+  inviteLinks        ReferralInvite[]
   submissions        CampaignSubmission[]
   claims             RewardClaim[]
   achievements       MemberAchievement[]
@@ -359,6 +360,18 @@ model Referral {
   @@unique([referrerId, referredId])
   @@index([inviteCode])
   @@map("referrals")
+}
+
+model ReferralInvite {
+  id        String        @id @default(cuid())
+  memberId  String
+  member    DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  inviteCode String       @unique
+  createdAt DateTime      @default(now())
+  revokedAt DateTime?
+
+  @@index([memberId, revokedAt])
+  @@map("referral_invites")
 }
 
 // ─────────────────────────────────────────────
