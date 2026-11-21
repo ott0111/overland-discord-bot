@@ -4,7 +4,7 @@ import { requireStaff } from "../../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "economy.view");
   if (error) return error;
   try {
     const member = await prisma.discordMember.findUnique({
