@@ -5,7 +5,7 @@ import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
 import { getInfoContent, getConfig, clearConfigCache, setInfoContent } from "../lib/config.js";
 import { awardDailyCheckin, awardEvent, awardWeeklyChallenge, awardHelpful, awardApprovedContribution } from "../modules/economy/service.js";
 import { hasPermission } from "../lib/permissions.js";
-import { listActive, listSubmissions, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
+import { listActive, listSubmissions, submissionHistory, submitWork, reviewSubmission } from "../modules/campaigns/service.js";
 import { checkAndGrant, listMemberAchievements } from "../modules/achievements/service.js";
 import { listRewards, claimReward, approveClaim, rejectClaim, fulfillClaim } from "../modules/rewards/service.js";
 import { createTicketChannel, claimTicket, closeTicket, findTicketByChannel, formatTicketNumber } from "../modules/tickets/service.js";
@@ -667,6 +667,18 @@ export const commands: Command[] = [
     if (!c) { await i.editReply({ embeds: [errorEmbed("Campaign not found.")] }); return; }
     await i.editReply({ embeds: [overlandEmbed(c.name, `${c.description}\n\nObjectives: ${c.objectives ?? "See description."}\nTasks: ${c.tasks ? JSON.stringify(c.tasks).slice(0, 800) : "See description."}\nReward: ${c.pointReward} points\nStarts: ${c.startsAt.toISOString().slice(0, 10)}\nEnds: ${c.endsAt.toISOString().slice(0, 10)}\nRequirements: ${c.submissionRequirements ?? "None listed."}`)] });
   } },
+  simpleCmd("my-submissions", "View your campaign submission history", async (i) => {
+    await i.deferReply({ ephemeral: true });
+    const member = await ensureMember(i.user.id, i.user.username);
+    const history = await submissionHistory(member.id, 15);
+    const lines = history.map((entry) =>
+      "**" + entry.campaign.name + "** · " + entry.status +
+      " · " + entry.createdAt.toLocaleDateString() +
+      (entry.pointsAwarded ? " · " + entry.pointsAwarded + " Overpoints" : "") +
+      (entry.feedback ? "\nStaff feedback: " + entry.feedback.slice(0, 180) : "")
+    );
+    await i.editReply({ embeds: [overlandEmbed("Your campaign submissions", lines.join("\n\n").slice(0, 3900) || "You have not submitted work to a campaign yet.")] });
+  }),
   { data: new SlashCommandBuilder().setName("campaign-gallery").setDescription("View approved community campaign submissions").addStringOption((o) => o.setName("campaign").setDescription("Campaign ID").setRequired(true)), execute: async (i) => {
     await i.deferReply();
     try {
