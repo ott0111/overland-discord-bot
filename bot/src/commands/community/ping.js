@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("ping").setDescription("Check Overland Core latency"),async i=>{const e=embed("OVERLAND STATUS  /  LATENCY","Measuring response times...");await i.reply({embeds:[e],ephemeral:true});e.setDescription("**Gateway heartbeat:** "+Math.round(i.client.ws.ping)+" ms\n**Interaction round-trip:** "+(Date.now()-i.createdTimestamp)+" ms");await i.editReply({embeds:[e]});});
