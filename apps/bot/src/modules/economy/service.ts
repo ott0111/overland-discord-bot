@@ -13,7 +13,7 @@ export async function awardDailyCheckin(memberId: string, streak: number) {
   const key = `daily-${memberId}-${today.toISOString().slice(0, 10)}`;
   const r = await awardPoints({ memberId, currency: "OVERPOINTS", category: "community", amount, source: "DAILY_CHECKIN", reason: `Daily check-in, streak ${streak}`, idempotencyKey: key });
   if (streakBonus > 0 && !r.duplicate) await awardPoints({ memberId, currency: "OVERCREDITS", category: "community", amount: streakBonus, source: "STREAK_BONUS", reason: "Weekly streak bonus", idempotencyKey: `${key}-streak` });
-  return r;
+  return { ...r, amount, streakBonus: r.duplicate ? 0 : streakBonus };
 }
 
 async function dailyLimit(): Promise<number> {
