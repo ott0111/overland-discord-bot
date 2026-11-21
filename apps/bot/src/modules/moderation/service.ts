@@ -174,7 +174,7 @@ export async function updateModerationConfig(actorId: string, patch: Partial<Pic
     create: { key: "moderation", value: next as never, updatedBy: actorId },
   });
   clearConfigCache("moderation");
-  await audit(actorId, "moderation.config_update", "BotConfiguration", "moderation", cleanPatch as Record<string, unknown>);
+  await audit(actorId, "moderation.config_update", "BotConfiguration", "moderation", { ...cleanPatch });
   return next;
 }
 
