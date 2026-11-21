@@ -134,7 +134,7 @@ client.once(Events.ClientReady,async ready=>{
   const appId=ready.application.id;
   if(process.env.DISCORD_CLIENT_ID&&process.env.DISCORD_CLIENT_ID!==ready.application.id)console.warn("[Commands] DISCORD_CLIENT_ID does not match the logged-in bot application. Ignoring it and using the application ID from the bot token.");
   await syncCommands(appId);
- }catch(e){console.error("[Commands] FATAL: "+e.message);}
+ }catch(e){console.error("[Commands] FATAL: "+e.message);console.error("[Commands] Exiting because slash commands could not be registered. Fix the settings and restart.");process.exit(1);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
  const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}await saveStore();}
  console.log("[Overland] Loaded "+commands.size+" modular commands.");
