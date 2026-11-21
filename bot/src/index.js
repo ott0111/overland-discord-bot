@@ -121,9 +121,9 @@ async function handleInteraction(i){
    return i.reply({content:"Your vote has been recorded.",flags:MessageFlags.Ephemeral});
   }
   if(i.isButton()&&i.customId.startsWith("overland:ticket:rating:")){
-   const p=i.customId.split(":"),rating=Number(p[3]),channelId=p[4],g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===channelId);
+   const p=i.customId.split(":"),rating=Number(p[3]),channelId=p[4],guildId=i.guildId||p[5],g=getGuild(guildId),record=g.tickets.find(t=>t.channelId===channelId);
    if(!record||record.ownerId!==i.user.id)throw new Error("Only the ticket creator can rate this ticket.");if(record.feedback)throw new Error("Feedback has already been submitted.");
-   record.feedback={rating,submittedAt:new Date().toISOString()};await saveStore();const dest=g.settings.ticketFeedbackChannelId?await i.guild.channels.fetch(g.settings.ticketFeedbackChannelId).catch(()=>null):null;
+   record.feedback={rating,submittedAt:new Date().toISOString()};await saveStore();const guild=await i.client.guilds.fetch(guildId).catch(()=>null),dest=guild&&g.settings.ticketFeedbackChannelId?await guild.channels.fetch(g.settings.ticketFeedbackChannelId).catch(()=>null):null;
    if(dest?.isTextBased())await dest.send({embeds:[embed("TICKET FEEDBACK  /  "+record.id,"A member rated their support experience.").addFields({name:"RATING",value:rating+"/5",inline:true},{name:"CATEGORY",value:record.category,inline:true},{name:"MEMBER",value:"<@"+record.ownerId+">",inline:true})]});
    return i.reply({content:"Thanks for rating your Overland support experience.",flags:MessageFlags.Ephemeral});
   }
