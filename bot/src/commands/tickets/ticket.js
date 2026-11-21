@@ -59,7 +59,7 @@ async function closeTicket(i) {
   if (channel.topic.startsWith("overland-ticket-closed:")) return reply(i, "Ticket already closed", "This ticket has already been archived.");
   const record = ticketRecord(g, channel.id);
   if (record) { record.status = "CLOSED"; record.closedAt = new Date().toISOString(); record.closedBy = i.user.id; }
-  await channel.permissionOverwrites.edit(ownerId, { ViewChannel: false, SendMessages: false }).catch(() => {});
+  await channel.permissionOverwrites.edit(ownerId, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true }).catch(() => {});
   await channel.setTopic("overland-ticket-closed:" + ownerId).catch(() => {});
   await channel.setName(("closed-" + channel.name).slice(0, 95)).catch(() => {});
   if (g.settings.ticketArchiveCategoryId) await channel.setParent(g.settings.ticketArchiveCategoryId).catch(() => {});
