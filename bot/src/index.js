@@ -116,13 +116,13 @@ async function handleInteraction(i){
    if(!owner||(!topic.startsWith("overland-ticket:"))|| (owner!==i.user.id&&!staff))return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
    const g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===i.channelId);
    if(record){record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}
-   await i.channel.permissionOverwrites.edit(owner,{ViewChannel:false,SendMessages:false}).catch(()=>{});
+   await i.channel.permissionOverwrites.edit(owner,{ViewChannel:true,SendMessages:false,ReadMessageHistory:true}).catch(()=>{});
    await i.channel.setTopic("overland-ticket-closed:"+owner).catch(()=>{});
    await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
    if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
    await saveStore();
    await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
-   await i.channel.send({embeds:[embed("TICKET CLOSED","This ticket was closed by "+i.user+". Staff can still review its history.")] }).catch(()=>{});
+   const feedbackRow=new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n=>new ButtonBuilder().setCustomId("overland:ticket:feedback:"+n).setLabel(n+" / 5").setStyle(n>=4?ButtonStyle.Success:ButtonStyle.Secondary)));\n   await i.channel.send({embeds:[embed("HOW DID WE DO?","If you opened this ticket, rate your support experience below.")],components:[feedbackRow]}).catch(()=>{});\n   await i.channel.send({embeds:[embed("TICKET CLOSED","This ticket was closed by "+i.user+". Staff can still review its history.")] }).catch(()=>{});
    return;
   }
   if(!i.isChatInputCommand())return;
