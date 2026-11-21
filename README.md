@@ -29,3 +29,8 @@ Staff can manage saved HTTPS links with `/link add`, `/link edit` and `/link rem
 ## Credentials required
 
 Discord bot token, Discord client ID and secret, guild ID, PostgreSQL URL, Redis URL (optional), X bearer token (optional, required only for X integration).
+
+
+## Community system
+
+See [docs/COMMUNITY_SYSTEM.md](docs/COMMUNITY_SYSTEM.md) for role definitions, internal permissions, earning values, daily limits, referrals, rewards, campaigns, leaderboards, X integration and first-time setup.
