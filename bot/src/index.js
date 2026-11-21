@@ -86,23 +86,41 @@ async function handleVerifyButton(i){
 async function createTicket(i){
  const g=getGuild(i.guildId),guild=i.guild;
  const existing=guild.channels.cache.find(c=>c.type===ChannelType.GuildText&&c.topic==="overland-ticket:"+i.user.id);
- if(existing)return i.reply({content:"You already have a ticket: "+existing,flags:MessageFlags.Ephemeral});
+ if(existing)return i.reply({embeds:[embed("SUPPORT  /  OPEN TICKET","You already have an active support room: "+existing)],flags:MessageFlags.Ephemeral});
  const support=g.settings.ticketSupportRoleId;
- const overwrites=[{id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},{id:i.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]},{id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels]}];
- if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory]});
- const ch=await guild.channels.create({name:"ticket-"+i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18),type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
- await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[embed("Ticket opened","Welcome "+i.user+". Explain what you need help with.")] ,components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
- await i.reply({content:"Your ticket is ready: "+ch,flags:MessageFlags.Ephemeral});
+ const overwrites=[
+  {id:guild.roles.everyone.id,deny:[PermissionFlagsBits.ViewChannel]},
+  {id:i.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]},
+  {id:client.user.id,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ManageChannels,PermissionFlagsBits.ReadMessageHistory]}
+ ];
+ if(support)overwrites.push({id:support,allow:[PermissionFlagsBits.ViewChannel,PermissionFlagsBits.SendMessages,PermissionFlagsBits.ReadMessageHistory,PermissionFlagsBits.AttachFiles]});
+ const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
+ const ch=await guild.channels.create({name:"ticket-support-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
+ const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category:"support",status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
+ g.tickets.unshift(record);await saveStore();
+ const ticketEmbed=embed("OVERLAND SUPPORT  /  NEW REQUEST","Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
+  .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
+ await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[ticketEmbed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
+ await i.reply({embeds:[embed("TICKET CREATED","Your private support channel is ready: "+ch+"\nReference: **"+record.id+"**")],flags:MessageFlags.Ephemeral});
 }
 async function handleInteraction(i){
  try{
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
   if(i.isButton()&&i.customId==="overland:ticket:close"){
-   const owner=i.channel.topic?.replace("overland-ticket:",""),staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
-   if(owner!==i.user.id&&!staff)return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
-   await i.reply({content:"Ticket closed. This channel will be deleted shortly.",flags:MessageFlags.Ephemeral});
-   setTimeout(()=>i.channel.delete("Overland ticket closed").catch(()=>{}),4000);return;
+   const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
+   const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
+   if(!owner||(!topic.startsWith("overland-ticket:"))|| (owner!==i.user.id&&!staff))return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
+   const g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===i.channelId);
+   if(record){record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}
+   await i.channel.permissionOverwrites.edit(owner,{ViewChannel:false,SendMessages:false}).catch(()=>{});
+   await i.channel.setTopic("overland-ticket-closed:"+owner).catch(()=>{});
+   await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
+   if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
+   await saveStore();
+   await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
+   await i.channel.send({embeds:[embed("TICKET CLOSED","This ticket was closed by "+i.user+". Staff can still review its history.")] }).catch(()=>{});
+   return;
   }
   if(!i.isChatInputCommand())return;
   const c=commands.get(i.commandName);if(!c)return;
