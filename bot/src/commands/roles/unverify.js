@@ -1,0 +1,4 @@
+import {SlashCommandBuilder} from "discord.js";
+import {command,reply,requirePerm} from "../helpers.js";
+import {getGuild,getMember,saveStore} from "../../store.js";
+export default command(new SlashCommandBuilder().setName("unverify").setDescription("Reset a member's Overland verification").addUserOption(o=>o.setName("member").setDescription("Member").setRequired(true)),async i=>{requirePerm(i,"roles.manage");const user=i.options.getUser("member",true),g=getGuild(i.guildId),profile=getMember(i.guildId,user),member=await i.guild.members.fetch(user.id).catch(()=>null);profile.verifiedAt=null;profile.verification=null;profile.roles=(profile.roles||[]).filter(x=>x!=="Citizen");const roleId=g.settings.roleIds.Citizen||g.settings.verifiedRoleId;if(member&&roleId)await member.roles.remove(roleId,"Overland verification reset");await saveStore();return reply(i,"VERIFICATION RESET",user.tag+" must complete the Overland verification process again.");});

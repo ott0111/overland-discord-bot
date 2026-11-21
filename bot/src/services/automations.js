@@ -133,6 +133,11 @@ export function registerAutomations(client){
           g.tempRoles=g.tempRoles.filter(x=>x!==temp);
           await log(guild,"TEMPORARY ROLE EXPIRED","Role <@&"+temp.roleId+"> expired for <@"+temp.userId+">.");
         }
+        for(const reminder of [...(g.reminders||[])].filter(x=>new Date(x.at).getTime()<=now)){
+          const target=await guild.channels.fetch(reminder.channelId).catch(()=>null);
+          if(target?.isTextBased())await target.send({content:"<@"+reminder.userId+">",embeds:[embed("REMINDER",reminder.text)]}).catch(()=>{});
+          g.reminders=g.reminders.filter(x=>x.id!==reminder.id);
+        }
         await saveStore();
       }catch(e){console.error("[TicketInactivity]",e);}
     }
