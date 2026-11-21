@@ -14,3 +14,10 @@ ALTER TABLE "point_balances"
     "referralPoints" >= 0 AND
     "contributionPoints" >= 0
   );
+
+
+-- Prevent a member from holding two pending claims for the same reward.
+-- The constraint is partial because completed/rejected claims remain as history.
+CREATE UNIQUE INDEX "reward_claims_one_pending_per_member_reward"
+  ON "reward_claims"("memberId", "rewardId")
+  WHERE "status" = 'PENDING';
