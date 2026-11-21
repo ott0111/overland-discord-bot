@@ -4,7 +4,7 @@ import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "audit.view");
   if (error) return error;
   const params = new URL(req.url).searchParams;
   const take = Math.min(200, Math.max(1, Number(params.get("take") ?? "100") || 100));
