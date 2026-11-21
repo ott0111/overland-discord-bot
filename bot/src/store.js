@@ -22,7 +22,7 @@ const defaults = () => ({
   },
   members: {}, recentJoins: [], transactions: [], roleHistory: [], team: [], campaigns: [],
   submissions: [], rewards: [], claims: [], referrals: [], invites: {},
-  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [],
+  achievements: [], moderation: [], tickets: [], checkins: [], xPosts: [], audit: [],
   stats: { messages: 0, joins: 0, leaves: 0 }
 });
 

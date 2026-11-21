@@ -6,6 +6,7 @@ import {embed} from "./commands/helpers.js";
 import {checkProgression,syncDiscordRole} from "./services/roles.js";
 import {recordJoin,processReferralMilestones} from "./services/referrals.js";
 import {award} from "./services/economy.js";
+import {startCoreApi} from "./api.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -159,4 +160,5 @@ const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache
 async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
+startCoreApi();
 await client.login(token);
