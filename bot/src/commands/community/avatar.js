@@ -1,0 +1,2 @@
+import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
+export default command(new SlashCommandBuilder().setName("avatar").setDescription("Display a member's avatar").addUserOption(o=>o.setName("member").setDescription("Member")),async i=>{const u=i.options.getUser("member")||i.user,url=u.displayAvatarURL({size:1024,extension:"png"}),e=embed("AVATAR  /  "+u.username,"[Open full resolution]("+url+")").setImage(url);return i.reply({embeds:[e],ephemeral:true});});
