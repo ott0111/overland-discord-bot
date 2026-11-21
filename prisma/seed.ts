@@ -11,7 +11,7 @@ async function main() {
   const groupNames = ["Owner","Executive","Administration","Moderation","Development","Support","Rewards_Management"] as const;
   for (const g of groupNames) {
     const group = await prisma.permissionGroup.upsert({ where: { name: g as never }, update: {}, create: { name: g as never } });
-    if (g === "Owner") for (const key of PERMISSIONS) await prisma.permission.upsert({ where: { key }, update: {}, create: { key, groupId: group.id } });
+    if (g === "Owner") for (const key of PERMISSIONS) await prisma.permission.upsert({ where: { key_groupId: { key, groupId: group.id } }, update: {}, create: { key, groupId: group.id } });
   }
   const achievements: Array<[string,string,string,number,number]> = [
     ["first-verification","First Verification","Complete Discord verification","VERIFICATION",10,0],
