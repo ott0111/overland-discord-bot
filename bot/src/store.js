@@ -61,7 +61,8 @@ function normalizeGuild(guild) {
   guild.settings.pointValues = { ...base.settings.pointValues, ...(guild.settings.pointValues || {}) };
   guild.settings.x = { ...base.settings.x, ...(guild.settings.x || {}) };
   guild.stats = { ...base.stats, ...(guild.stats || {}) };
-  guild.members ||= {};\n  guild.tempRoles ||= [];
+  guild.members ||= {};
+  guild.tempRoles ||= [];
   for (const key of ["suggestions","reports","appeals","vouches","blacklist"]) guild[key] ||= [];
   guild.settings.voice.autoVoiceRooms ||= {}; guild.settings.voice.voiceSessions ||= {}; guild.settings.voice.voiceStats ||= {};
   return guild;
