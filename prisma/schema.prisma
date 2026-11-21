@@ -470,6 +470,7 @@ model LeaderboardSnapshot {
   score     Int
   createdAt DateTime         @default(now())
 
+  @@unique([period, category, periodKey, memberId])
   @@index([period, category, periodKey, rank])
   @@map("leaderboard_snapshots")
 }
