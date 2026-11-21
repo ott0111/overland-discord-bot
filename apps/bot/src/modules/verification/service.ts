@@ -13,9 +13,16 @@ export function checkCaptchaAnswer(expected: string, given: string): boolean {
   return expected.trim().toLowerCase() === given.trim().toLowerCase();
 }
 
-export function verificationCheck(accountAgeDays: number, minAgeDays: number, hasAvatar: boolean, captchaPassed: boolean): VerificationCheck {
+export function verificationCheck(
+  accountAgeDays: number,
+  minAgeDays: number,
+  hasAvatar: boolean,
+  captchaPassed: boolean,
+  requireAvatar = false,
+): VerificationCheck {
   const reasons: string[] = [];
-  if (isSuspiciousAccount(accountAgeDays, minAgeDays, hasAvatar)) reasons.push("Account looks suspicious: too new or no avatar");
+  if (accountAgeDays < minAgeDays) reasons.push("Account is too new");
+  if (requireAvatar && !hasAvatar) reasons.push("An avatar is required for verification");
   if (!captchaPassed) reasons.push("Verification challenge not passed");
   return { passed: reasons.length === 0, reasons };
 }
@@ -129,7 +136,7 @@ export async function completeVerification(
     if (!challenge) throw new Error("Verification challenge expired or not found. Start verification again.");
     captchaPassed = checkCaptchaAnswer(challenge.answer, answer);
   }
-  const check = verificationCheck(accountAgeDays, config.minAccountAgeDays, hasAvatar, captchaPassed);
+  const check = verificationCheck(accountAgeDays, config.minAccountAgeDays, hasAvatar, captchaPassed, config.requireAvatar);
   if (!check.passed) throw new Error(`Verification failed: ${check.reasons.join("; ")}`);
   await grantCitizenAfterVerification(memberId, actorId, guild);
   try {
