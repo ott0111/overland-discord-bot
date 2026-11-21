@@ -1,20 +1,21 @@
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
 import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "economy.view");
   if (error) return error;
   const params = new URL(req.url).searchParams;
   const q = (params.get("q") ?? "").trim();
   const page = Math.max(1, Number(params.get("page") ?? "1") || 1);
   const limit = Math.min(100, Math.max(1, Number(params.get("limit") ?? "20") || 20));
   try {
-    const where = q
+    const where: Prisma.DiscordMemberWhereInput | undefined = q
       ? {
           OR: [
-            { user: { username: { contains: q, mode: "insensitive" } } },
+            { user: { username: { contains: q, mode: "insensitive" as const } } },
             { user: { discordId: { contains: q } } },
           ],
         }

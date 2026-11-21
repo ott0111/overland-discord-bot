@@ -5,6 +5,8 @@ import { isDuplicateMessage, hashMessage, isSpammy, isSuspiciousAccount, detectS
 import { meetsRoleRequirements } from "../modules/roles/service.js";
 import { groupHasPermission } from "../lib/permissions.js";
 import { checkCaptchaAnswer, verificationCheck } from "../modules/verification/service.js";
+import { checkMessage } from "../modules/moderation/service.js";
+import { normalizeLinkKey, validateLinkUrl } from "../modules/settings/service.js";
 import { transcriptText, nextTicketNumber, formatTicketNumber } from "../modules/tickets/service.js";
 import { leaderboardField, paginateLeaderboard, periodKeyFor } from "../modules/leaderboards/service.js";
 import { canClaimReward } from "../modules/rewards/service.js";
@@ -41,6 +43,7 @@ describe("spam and duplicates", () => {
 describe("verification", () => {
   it("checks captcha answers case-insensitively", () => { expect(checkCaptchaAnswer("Overland", " overland ")).toBe(true); expect(checkCaptchaAnswer("Overland", "wrong")).toBe(false); });
   it("requires captcha and account age", () => { expect(verificationCheck(30, 7, true, true).passed).toBe(true); expect(verificationCheck(1, 7, true, true).passed).toBe(false); expect(verificationCheck(30, 7, true, false).passed).toBe(false); });
+  it("only requires an avatar when the setting is enabled", () => { expect(verificationCheck(30, 7, false, true, false).passed).toBe(true); expect(verificationCheck(30, 7, false, true, true).passed).toBe(false); });
 });
 describe("tickets and leaderboards", () => {
   it("builds a transcript", () => { expect(transcriptText([{ authorId: "u1", content: "hi", createdAt: new Date("2026-11-20T00:00:00Z") }])).toContain("u1: hi"); });
@@ -96,4 +99,36 @@ describe("ticket numbering", () => {
 describe("lazy database layer", () => {
   it("imports without constructing a Prisma Client or touching a database", () => { expect(prisma).toBeDefined(); expect(typeof prisma).toBe("object"); });
   it("audit never throws when no database is available", async () => { await expect(audit(null, "test.ping", "Test", null)).resolves.toBeUndefined(); });
+});
+
+describe("editable settings", () => {
+  it("normalizes link keys consistently", () => {
+    expect(normalizeLinkKey("X (Twitter)")).toBe("x-twitter");
+    expect(normalizeLinkKey("  Discord  ")).toBe("discord");
+  });
+  it("only accepts safe HTTPS links", () => {
+    expect(validateLinkUrl("https://example.com")).toBe("https://example.com/");
+    expect(() => validateLinkUrl("http://example.com")).toThrow("HTTPS");
+    expect(() => validateLinkUrl("https://user:pass@example.com")).toThrow("credentials");
+    expect(() => validateLinkUrl("not a URL")).toThrow("valid full URL");
+  });
+});
+describe("configurable moderation checks", () => {
+  const config = {
+    profanityFilter: true, profanityWords: ["badword"], inviteFilter: true,
+    maxMentions: 2, spamWindowSeconds: 10, spamMaxMessages: 5,
+    suspiciousLinkAction: "delete" as const,
+  };
+  it("returns independent flags for spam, mentions, invites and profanity", () => {
+    const now = 100000;
+    const flags = checkMessage(
+      "badword discord.gg/invite <@1> <@2> <@3>",
+      [now - 1, now - 2, now - 3, now - 4, now],
+      [], now, config,
+    );
+    expect(flags.spam).toBe(true);
+    expect(flags.invite).toBe(true);
+    expect(flags.massMention).toBe(true);
+    expect(flags.profanity).toBe(true);
+  });
 });

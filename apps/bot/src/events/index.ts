@@ -1,43 +1,153 @@
-
-import { Events, type Client, type GuildMember, type Message } from "discord.js";
+import { Events, type Client, type GuildMember, type Message, type Invite } from "discord.js";
 import { prisma, audit } from "../lib/db.js";
 import { logger } from "../lib/logger.js";
 import { overlandEmbed } from "../lib/embeds.js";
-import { containsSuspiciousLink, countMentions, hashMessage, isSpammy } from "../lib/antifraud.js";
+import { hashMessage } from "../lib/antifraud.js";
 import { awardPoints } from "../lib/points.js";
+import { getModerationConfig, checkMessage } from "../modules/moderation/service.js";
+import { getWelcomeSettings } from "../modules/settings/service.js";
+import { recordJoin } from "../modules/referrals/service.js";
+
 const recentByUser = new Map<string, number[]>();
 const hashesByUser = new Map<string, string[]>();
+const inviteUses = new Map<string, number>();
+
+function inviteCacheKey(guildId: string, code: string): string { return guildId + ":" + code; }
+
+async function refreshInvites(client: Client): Promise<void> {
+  for (const guild of client.guilds.cache.values()) {
+    const invites = await guild.invites.fetch().catch(() => null);
+    if (!invites) continue;
+    for (const invite of invites.values()) inviteUses.set(inviteCacheKey(guild.id, invite.code), invite.uses ?? 0);
+  }
+}
+
 export function registerEvents(client: Client): void {
-  client.once(Events.ClientReady, (c) => logger.info(`Overland Core ready as ${c.user.tag}`));
+  client.once(Events.ClientReady, async (c) => {
+    logger.info("Overland Core ready as " + c.user.tag);
+    await refreshInvites(client);
+  });
+
+  client.on(Events.InviteCreate, (invite: Invite) => {
+    if (invite.guild) inviteUses.set(inviteCacheKey(invite.guild.id, invite.code), invite.uses ?? 0);
+  });
+  client.on(Events.InviteDelete, (invite: Invite) => {
+    if (invite.guild) inviteUses.delete(inviteCacheKey(invite.guild.id, invite.code));
+  });
+
   client.on(Events.GuildMemberAdd, async (member: GuildMember) => {
     try {
-      const user = await prisma.user.upsert({ where: { discordId: member.id }, update: { username: member.user.username }, create: { discordId: member.id, username: member.user.username } });
-      await prisma.discordMember.upsert({ where: { userId: user.id }, update: {}, create: { userId: user.id, guildId: member.guild.id, joinedAt: member.joinedAt } });
+      const user = await prisma.user.upsert({
+        where: { discordId: member.id },
+        update: { username: member.user.username },
+        create: { discordId: member.id, username: member.user.username },
+      });
+      await prisma.discordMember.upsert({
+        where: { userId: user.id },
+        update: { joinedAt: member.joinedAt },
+        create: { userId: user.id, guildId: member.guild.id, joinedAt: member.joinedAt },
+      });
+
       const accountAgeDays = (Date.now() - member.user.createdTimestamp) / 86400000;
-      if (accountAgeDays < 7) await prisma.discordMember.updateMany({ where: { userId: user.id }, data: { isSuspicious: true } });
-      const cfg = await prisma.botConfiguration.findUnique({ where: { key: "welcome" } });
-      const welcomeChannelId = (cfg?.value as { channelId?: string } | null)?.channelId;
-      if (welcomeChannelId) { const ch = await member.guild.channels.fetch(welcomeChannelId).catch(() => null); if (ch?.isTextBased()) await (ch as import("discord.js").TextChannel).send({ embeds: [overlandEmbed(`Welcome, ${member.user.username}`, "Welcome to Overland Finance. Complete verification to become a Citizen and unlock the community.")] }); }
+      if (accountAgeDays < 7) {
+        await prisma.discordMember.updateMany({ where: { userId: user.id }, data: { isSuspicious: true } });
+      }
+
+      const currentInvites = await member.guild.invites.fetch().catch(() => null);
+      if (currentInvites) {
+        const used = currentInvites.find((invite) =>
+          (invite.uses ?? 0) > (inviteUses.get(inviteCacheKey(member.guild.id, invite.code)) ?? 0));
+        for (const invite of currentInvites.values()) inviteUses.set(inviteCacheKey(member.guild.id, invite.code), invite.uses ?? 0);
+        if (used?.inviter && used.inviter.id !== member.id) {
+          const inviterUser = await prisma.user.upsert({
+            where: { discordId: used.inviter.id },
+            update: { username: used.inviter.username },
+            create: { discordId: used.inviter.id, username: used.inviter.username },
+          });
+          await prisma.discordMember.upsert({
+            where: { userId: inviterUser.id },
+            update: {},
+            create: { userId: inviterUser.id, guildId: member.guild.id },
+          });
+          await recordJoin(used.inviter.id, member.id, used.code).catch((err) =>
+            logger.warn({ err, inviteCode: used.code }, "Referral tracking failed"));
+        }
+      }
+
+      const welcome = await getWelcomeSettings();
+      if (welcome.enabled && welcome.channelId) {
+        const channel = await member.guild.channels.fetch(welcome.channelId).catch(() => null);
+        if (channel?.isTextBased() && "send" in channel) {
+          const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
+          const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
+          await (channel as import("discord.js").TextChannel).send({
+            embeds: [overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL())],
+          });
+        }
+      }
       await audit(null, "member.join", "DiscordMember", member.id, { accountAgeDays: Math.round(accountAgeDays) });
-    } catch (err) { logger.error({ err }, "GuildMemberAdd failed"); }
+    } catch (err) {
+      logger.error({ err }, "GuildMemberAdd failed");
+    }
   });
+
   client.on(Events.MessageCreate, async (msg: Message) => {
-    if (msg.author.bot || !msg.guild) return;
+    if (msg.author.bot || !msg.guild || !msg.member) return;
     try {
-      if (containsSuspiciousLink(msg.content)) { await msg.delete().catch(() => undefined); await (msg.channel as import("discord.js").TextChannel).send({ embeds: [overlandEmbed("Link removed", "A suspicious link was removed automatically. Staff have been notified.")] }).catch(() => undefined); await audit(null, "moderation.link_removed", "Message", msg.id, { authorId: msg.author.id }); return; }
-      if (countMentions(msg.content) > 5) { await msg.delete().catch(() => undefined); return; }
-      const now = Date.now(); const arr = recentByUser.get(msg.author.id) ?? [];
-      arr.push(now); recentByUser.set(msg.author.id, arr.filter((t) => now - t < 10000));
-      if (isSpammy(arr, now, 10000, 5)) { await msg.member?.timeout(60_000, "Spam protection").catch(() => undefined); return; }
-      const h = hashMessage(msg.content); const hashes = hashesByUser.get(msg.author.id) ?? [];
-      if (hashes.includes(h)) return; hashes.push(h); hashesByUser.set(msg.author.id, hashes.slice(-20));
+      const now = Date.now();
+      const timestamps = recentByUser.get(msg.author.id) ?? [];
+      timestamps.push(now);
+      const recent = timestamps.filter((time) => now - time < 60000);
+      recentByUser.set(msg.author.id, recent);
+
+      const hash = hashMessage(msg.content);
+      const hashes = hashesByUser.get(msg.author.id) ?? [];
+      const config = await getModerationConfig();
+      const flags = checkMessage(msg.content, recent, hashes, now, config);
+
+      if (flags.suspiciousLink) {
+        await audit(null, "moderation.suspicious_link", "Message", msg.id, { authorId: msg.author.id, action: config.suspiciousLinkAction });
+        if (config.suspiciousLinkAction === "delete") {
+          await msg.delete().catch(() => undefined);
+          await (msg.channel as import("discord.js").TextChannel).send({ embeds: [overlandEmbed("Link removed", "A suspicious link was removed automatically. Staff have been notified.")] }).catch(() => undefined);
+          return;
+        }
+      }
+      if (flags.invite || flags.massMention || flags.profanity) {
+        await msg.delete().catch(() => undefined);
+        await audit(null, "moderation.message_filtered", "Message", msg.id, {
+          authorId: msg.author.id, invite: flags.invite, massMention: flags.massMention, profanity: flags.profanity,
+        });
+        return;
+      }
+      if (flags.spam) {
+        await msg.member.timeout(60000, "Overland automatic spam protection").catch(() => undefined);
+        await audit(null, "moderation.spam_timeout", "DiscordMember", msg.author.id, { windowSeconds: config.spamWindowSeconds });
+        return;
+      }
+      if (flags.duplicate) return;
+
+      hashes.push(hash);
+      hashesByUser.set(msg.author.id, hashes.slice(-20));
       if (msg.content.trim().length < 20) return;
+
       const user = await prisma.user.findUnique({ where: { discordId: msg.author.id } });
-      if (!user) return; const member = await prisma.discordMember.findUnique({ where: { userId: user.id } });
+      if (!user) return;
+      const member = await prisma.discordMember.findUnique({ where: { userId: user.id } });
       if (!member) return;
-      const today = new Date(); today.setHours(0,0,0,0);
-      const earned = await prisma.pointTransaction.count({ where: { memberId: member.id, source: "PARTICIPATION", createdAt: { gte: today } } });
-      if (earned < 10) await awardPoints({ memberId: member.id, currency: "OVERPOINTS", category: "community", amount: 2, source: "PARTICIPATION", reason: "Meaningful participation", idempotencyKey: `msg-${msg.id}` }).catch(() => undefined);
-    } catch (err) { logger.error({ err }, "MessageCreate handler failed"); }
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const earned = await prisma.pointTransaction.count({
+        where: { memberId: member.id, source: "PARTICIPATION", createdAt: { gte: today } },
+      });
+      if (earned < 10) {
+        await awardPoints({
+          memberId: member.id, currency: "OVERPOINTS", category: "community", amount: 2,
+          source: "PARTICIPATION", reason: "Meaningful participation", idempotencyKey: "msg-" + msg.id,
+        }).catch(() => undefined);
+      }
+    } catch (err) {
+      logger.error({ err }, "MessageCreate handler failed");
+    }
   });
 }

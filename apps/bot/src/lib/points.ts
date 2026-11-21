@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma, audit } from "./db.js";
 
 export interface AwardInput {
@@ -11,16 +12,8 @@ export interface AwardInput {
   idempotencyKey: string;
 }
 
-/** Minimal shape of a Prisma transaction client, typed loosely on purpose. */
-export type TxClient = {
-  pointTransaction: { findUnique: (args: unknown) => Promise<unknown> };
-  pointBalance: {
-    findUnique: (args: unknown) => Promise<unknown>;
-    create: (args: unknown) => Promise<unknown>;
-    update: (args: unknown) => Promise<unknown>;
-  };
-  [key: string]: unknown;
-};
+/** Prisma transaction client shared by atomic award operations. */
+export type TxClient = Prisma.TransactionClient;
 
 const CATEGORY_FIELD: Record<string, string> = {
   community: "communityPoints",
@@ -40,7 +33,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
     where: { memberId: input.memberId },
   })) as Balance | null;
   if (!balance) {
-    balance = (await (tx.pointBalance.create as (a: unknown) => Promise<Balance>)({
+    balance = (await (tx.pointBalance.create as unknown as (a: unknown) => Promise<Balance>)({
       data: { memberId: input.memberId },
     })) as Balance;
   }
@@ -50,7 +43,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
   const catField = CATEGORY_FIELD[input.category];
   const data: Record<string, number> = { [field]: after };
   if (catField && input.amount > 0) data[catField] = (balance[catField] as number) + input.amount;
-  const updated = (await (tx.pointBalance.update as (a: unknown) => Promise<Balance>)({
+  const updated = (await (tx.pointBalance.update as unknown as (a: unknown) => Promise<Balance>)({
     where: { memberId: input.memberId },
     data,
   })) as Balance;
@@ -81,7 +74,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
  */
 export async function awardPoints(input: AwardInput, tx?: TxClient) {
   if (tx) return awardWithTx(tx, input);
-  return prisma.$transaction(async (inner: TxClient) => awardWithTx(inner, input));
+  return prisma.$transaction(async (inner) => awardWithTx(inner, input));
 }
 
 export async function getBalance(memberId: string) {

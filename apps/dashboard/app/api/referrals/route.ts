@@ -4,7 +4,7 @@ import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "referrals.view");
   if (error) return error;
   try {
     const [referrals, total, verified, retained, comrade, suspicious] = await Promise.all([

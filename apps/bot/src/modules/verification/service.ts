@@ -13,9 +13,16 @@ export function checkCaptchaAnswer(expected: string, given: string): boolean {
   return expected.trim().toLowerCase() === given.trim().toLowerCase();
 }
 
-export function verificationCheck(accountAgeDays: number, minAgeDays: number, hasAvatar: boolean, captchaPassed: boolean): VerificationCheck {
+export function verificationCheck(
+  accountAgeDays: number,
+  minAgeDays: number,
+  hasAvatar: boolean,
+  captchaPassed: boolean,
+  requireAvatar = false,
+): VerificationCheck {
   const reasons: string[] = [];
-  if (isSuspiciousAccount(accountAgeDays, minAgeDays, hasAvatar)) reasons.push("Account looks suspicious: too new or no avatar");
+  if (accountAgeDays < minAgeDays) reasons.push("Account is too new");
+  if (requireAvatar && !hasAvatar) reasons.push("An avatar is required for verification");
   if (!captchaPassed) reasons.push("Verification challenge not passed");
   return { passed: reasons.length === 0, reasons };
 }
@@ -59,14 +66,20 @@ export interface VerificationConfig {
   minAccountAgeDays: number;
   requireCaptcha: boolean;
   requireAvatar: boolean;
+  antiRaidWindowMinutes: number;
+  antiRaidThreshold: number;
 }
 
 export async function getVerificationConfig(): Promise<VerificationConfig> {
-  return getConfig<VerificationConfig>("verification", {
+  const defaults: VerificationConfig = {
     minAccountAgeDays: 7,
     requireCaptcha: true,
     requireAvatar: false,
-  });
+    antiRaidWindowMinutes: 10,
+    antiRaidThreshold: 10,
+  };
+  const stored = await getConfig<Partial<VerificationConfig>>("verification", {});
+  return { ...defaults, ...stored };
 }
 
 /**
@@ -77,7 +90,7 @@ export async function getVerificationConfig(): Promise<VerificationConfig> {
 export async function checkAntiRaid(guildId: string, windowMinutes = 10, threshold = 10): Promise<{ raiding: boolean; recentJoins: number }> {
   const since = new Date(Date.now() - windowMinutes * 60 * 1000);
   const recentJoins = await prisma.discordMember.count({
-    where: { guildId, createdAt: { gte: since } },
+    where: { guildId, joinedAt: { gte: since } },
   });
   return { raiding: recentJoins >= threshold, recentJoins };
 }
@@ -99,7 +112,7 @@ export async function startVerification(memberId: string, accountAgeDays: number
   }
   let raid: { raiding: boolean; recentJoins: number } | null = null;
   if (guildId) {
-    raid = await checkAntiRaid(guildId);
+    raid = await checkAntiRaid(guildId, config.antiRaidWindowMinutes, config.antiRaidThreshold);
     if (raid.raiding) reasons.push("Anti-raid protection is active: verification is paused for staff review");
   }
   if (reasons.length > 0) return { passed: false, reasons, challenge: null, raid };
@@ -129,7 +142,7 @@ export async function completeVerification(
     if (!challenge) throw new Error("Verification challenge expired or not found. Start verification again.");
     captchaPassed = checkCaptchaAnswer(challenge.answer, answer);
   }
-  const check = verificationCheck(accountAgeDays, config.minAccountAgeDays, hasAvatar, captchaPassed);
+  const check = verificationCheck(accountAgeDays, config.minAccountAgeDays, hasAvatar, captchaPassed, config.requireAvatar);
   if (!check.passed) throw new Error(`Verification failed: ${check.reasons.join("; ")}`);
   await grantCitizenAfterVerification(memberId, actorId, guild);
   try {

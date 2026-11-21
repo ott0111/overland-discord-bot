@@ -12,9 +12,9 @@ takes on your machine.
 - npm 10 or newer (ships with Node 20).
 - PostgreSQL 15 or newer, running locally or hosted, with a database and a
   user that can create tables, types and indexes.
-- Redis 7 or newer (optional). The bot works without Redis and falls back
-  to in-memory timers for scheduled jobs. Redis is recommended in
-  production so delayed jobs survive a bot restart.
+- Redis 7 or newer (recommended). With Redis, BullMQ workers execute durable
+  delayed jobs and scheduled X polling. Without Redis, the bot uses an
+  in-memory timer fallback; delayed jobs are lost on restart.
 - A Discord account with permission to create applications and to add a bot
   to the Overland Finance server.
 - For X integration only: an X developer account with API v2 access and a
@@ -41,7 +41,7 @@ takes on your machine.
 5. Go to OAuth2, URL Generator. Select scopes `bot` and
    `applications.commands`. Select at least these bot permissions:
    Manage Roles, Manage Channels, Kick Members, Ban Members, Moderate
-   Members (timeout), Manage Messages, Read Message History, Send Messages,
+   Members (timeout), Manage Messages, Read Message History, View Audit Log, Send Messages,
    Embed Links, Attach Files, Create Invite, View Channels. The bot only
    uses the permissions its features need, and staff actions are gated by
    the internal permission system, not by Discord roles.
@@ -78,12 +78,12 @@ cp .env.example .env
 | `DISCORD_GUILD_ID` | Yes | Bot | Server ID the bot operates in. |
 | `GUILD_ID` | No | Dashboard team API | Legacy fallback only. The team route reads `DISCORD_GUILD_ID` first, so you do not need to set this. |
 | `DATABASE_URL` | Yes | Bot, dashboard, Prisma | PostgreSQL connection string, for example `postgresql://overland:SECRET@localhost:5432/overland_core?schema=public`. |
-| `REDIS_URL` | No | Bot | For example `redis://localhost:6379`. Without it the bot uses in-memory timers and delayed jobs are lost on restart. |
+| `REDIS_URL` | No | Bot | For example `redis://localhost:6379`. Enables BullMQ workers and durable delayed jobs. Without it, delayed jobs use in-memory timers and are lost on restart. |
 | `X_BEARER_TOKEN` | No | Bot | X API v2 bearer token. Blank means the X integration is disabled and logs that clearly. |
 | `X_USERNAME` | No | Bot | Defaults to `OverlandFinance`. |
 | `NEXTAUTH_URL` | Yes for dashboard | Dashboard | Public base URL of the dashboard, for example `http://localhost:3000` locally. The OAuth2 redirect is this URL plus `/api/auth/callback`. |
-| `NEXTAUTH_SECRET` | Reserved | Nothing yet | Listed for future session signing. No code reads it today: the dashboard session is a base64 JSON cookie (see docs/ARCHITECTURE.md, Known limitations). Set a long random value anyway so it is ready when signing lands. |
-| `DASHBOARD_SESSION_SECRET` | Reserved | Nothing yet | Same status as `NEXTAUTH_SECRET`. |
+| `NEXTAUTH_SECRET` | Yes for dashboard | Dashboard | Fallback signing secret for the HMAC-protected dashboard session cookie. |
+| `DASHBOARD_SESSION_SECRET` | Yes for dashboard | Dashboard | Preferred HMAC-SHA256 session signing secret. Use a long random value unique to each environment. |
 | `NODE_ENV` | No | Bot, dashboard | `development` or `production`. Defaults to `development`. |
 | `LOG_LEVEL` | No | Bot | pino log level. Defaults to `info`. |
 | `PORT` | No | Dashboard host | Port for `next start`. Next.js reads it natively. Defaults to `3000`. |
@@ -220,7 +220,7 @@ npm run dev:bot        # tsx watch apps/bot/src/index.ts
 npm run dev:dashboard  # next dev on http://localhost:3000
 ```
 
-Production build:
+Production build (bot and dashboard):
 
 ```sh
 npm run build
@@ -238,29 +238,26 @@ docs/DEPLOYMENT.md).
 ## 10. Verify the setup
 
 1. In Discord, run `/help`. All commands should be listed.
-2. Run `/profile`. You should see your balances (0 Overpoints,
-   0 Overcredits) and rank.
-3. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day.
-   Run it again: it should say you already checked in today.
-4. Run `/leaderboard overall`. You should appear on it.
-5. Open http://localhost:3000 and sign in with Discord. If you are not
-   staff, you will see a staff-only message: that is the RBAC working.
-   A staff member sees the dashboard sections.
-6. Check the X integration state in the bot log at startup: with no
-   `X_BEARER_TOKEN` it logs that X polling is skipped. With a token and
-   the integration enabled in configuration, the first poll runs
-   immediately and then every 15 minutes.
+2. As a staff member with `config.manage`, run `/link add` to save a social link, then `/socials` to publish the embed and URL buttons.
+3. Run `/welcome setup` to select the welcome channel and customize its title and message. Use `/welcome preview` before testing a join.
+4. Run `/security status` to inspect automatic moderation. Staff with `moderation.action` can adjust it with `/security configure`.
+5. Run `/profile`. You should see your balances (0 Overpoints, 0 Overcredits) and rank.
+6. Run `/daily`. You should earn 5 Overpoints and a streak of 1 day. Run it again: it should say you already checked in today.
+7. Run `/leaderboard` and choose a category. You should appear on it.
+8. Open http://localhost:3000 and sign in with Discord. If you are not staff, you will see a staff-only message: that is the RBAC working. A staff member sees the dashboard sections.
+9. Check the X integration state in the bot log at startup. With no `X_BEARER_TOKEN` it logs that X polling is skipped. With a token and the integration enabled, it polls at the configured interval.
 
-## 11. Tests and typecheck
+## 11. Tests, typecheck and CI
 
 No database and no generated Prisma Client are needed for these:
 
 ```sh
-npm --workspace apps/bot run test      # vitest run, 42 tests
-npm --workspace apps/bot run typecheck # tsc --noEmit, must exit 0
+npm test                 # bot Vitest suite
+npm run typecheck        # bot and dashboard TypeScript checks
+npm run build            # bot and dashboard production builds
 ```
 
-The tests cover daily limits, point values, atomicity invariants,
+The bot tests cover daily limits, point values, atomicity invariants,
 reward-claim guard, daily streak logic, leaderboard pagination,
 X dedupe by postId, ticket numbering, referral anti-abuse, role
 requirements, permissions, spam and duplicates, verification, tickets
@@ -270,6 +267,10 @@ and the database layer uses lazy initialisation
 (`apps/bot/src/lib/db.ts`), so importing it never constructs a client.
 Tests that need a live database do not exist yet; that is an open gap,
 see docs/ARCHITECTURE.md.
+
+A GitHub Actions workflow at `.github/workflows/ci.yml` runs Prisma
+generation and validation, both TypeScript checks, the bot tests and
+the full production build on pushes and pull requests.
 
 ## 12. Troubleshooting
 

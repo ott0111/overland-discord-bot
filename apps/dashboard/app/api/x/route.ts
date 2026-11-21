@@ -13,7 +13,7 @@ async function readXConfig(): Promise<Record<string, unknown>> {
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "x.manage");
   if (error) return error;
   try {
     const [config, posts] = await Promise.all([

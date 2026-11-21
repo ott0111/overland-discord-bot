@@ -159,10 +159,12 @@ async function setClaimStatus(
   if (claim.status !== "PENDING" && status !== "CANCELLED") {
     throw new Error(`Claim was already ${claim.status.toLowerCase()}`);
   }
-  const updated = await prisma.rewardClaim.update({
-    where: { id: claimId },
+  const transition = await prisma.rewardClaim.updateMany({
+    where: { id: claimId, status: claim.status },
     data: { status: status as never, reviewedBy: staffDiscordId },
   });
+  if (transition.count !== 1) throw new Error("Claim status changed. Refresh and try again.");
+  const updated = await prisma.rewardClaim.findUniqueOrThrow({ where: { id: claimId } });
   await audit(staffDiscordId, `rewards.claim.${status.toLowerCase()}`, "RewardClaim", claimId, {});
   return updated;
 }
@@ -187,6 +189,11 @@ export async function rejectClaim(staffDiscordId: string, claimId: string) {
     throw new Error(`Claim was already ${claim.status.toLowerCase()}`);
   }
   const updated = await prisma.$transaction(async (tx: any) => {
+    const transition = await tx.rewardClaim.updateMany({
+      where: { id: claimId, status: { in: ["PENDING", "APPROVED"] } },
+      data: { status: "REJECTED", reviewedBy: staffDiscordId },
+    });
+    if (transition.count !== 1) throw new Error("Claim status changed. Refresh and try again.");
     const balance = await tx.pointBalance.findUnique({ where: { memberId: claim.memberId } });
     const after = (balance?.overcredits ?? 0) + claim.costOvercredits;
     if (balance) {
@@ -213,10 +220,7 @@ export async function rejectClaim(staffDiscordId: string, claimId: string) {
         await tx.reward.update({ where: { id: claim.rewardId }, data: { stock: reward.stock + 1 } });
       }
     }
-    return tx.rewardClaim.update({
-      where: { id: claimId },
-      data: { status: "REJECTED", reviewedBy: staffDiscordId },
-    });
+    return tx.rewardClaim.findUniqueOrThrow({ where: { id: claimId } });
   });
   await audit(staffDiscordId, "rewards.claim.rejected", "RewardClaim", claimId, { refunded: claim.costOvercredits });
   return updated;
@@ -230,10 +234,12 @@ export async function fulfillClaim(staffDiscordId: string, claimId: string) {
   const claim = await prisma.rewardClaim.findUnique({ where: { id: claimId } });
   if (!claim) throw new Error("Claim not found");
   if (claim.status !== "APPROVED") throw new Error(`Only approved claims can be fulfilled (current: ${claim.status})`);
-  const updated = await prisma.rewardClaim.update({
-    where: { id: claimId },
+  const transition = await prisma.rewardClaim.updateMany({
+    where: { id: claimId, status: "APPROVED" },
     data: { status: "FULFILLED", reviewedBy: staffDiscordId },
   });
+  if (transition.count !== 1) throw new Error("Claim status changed. Refresh and try again.");
+  const updated = await prisma.rewardClaim.findUniqueOrThrow({ where: { id: claimId } });
   await audit(staffDiscordId, "rewards.claim.fulfilled", "RewardClaim", claimId, {});
   return updated;
 }

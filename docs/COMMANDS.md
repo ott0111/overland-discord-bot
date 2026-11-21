@@ -36,7 +36,8 @@ Permission column meanings:
 | `/submit` | `campaign` (required), `content` (required), `link` (optional) | Everyone | Submit work to an active campaign. Content is required (4000 characters max), links must be valid URLs. A second submission while one is pending returns the existing pending submission instead of creating a duplicate. Staff review it; approval awards the campaign points. |
 | `/rewards` | none | Everyone | Browse the rewards marketplace: name, Overcredits cost, stock where limited. |
 | `/claim` | `reward` (required reward ID) | Everyone | Claim a reward with Overcredits. The debit, stock decrement and claim record happen in one transaction, and an existing pending claim for the same reward is returned instead of spending twice. A claim starts as PENDING for staff review. |
-| `/verify` | none | Everyone | Starts verification. The bot points you at the verification button in the onboarding channel. Passing verification grants Citizen. Suspicious accounts may need staff review. |
+| `/verify` | none | Everyone | Starts account-age and anti-raid checks, then issues a short-lived CAPTCHA challenge when enabled. |
+| `/verify-answer` | `challenge_id`, `answer` | Everyone | Completes the current member's verification challenge and grants Citizen. |
 | `/ticket` | `category` (required: General Inquiry, Partnerships, Business Development, Opportunities, Technical Support, Other), `topic` (required) | Everyone | Opens a ticket: a numbered record plus a private channel visible only to you, staff and the bot. One open ticket per member at a time. |
 | `/help` | none | Everyone | Lists every command with its short description. |
 
@@ -51,14 +52,25 @@ Permission column meanings:
 | `/warn` | `member` (required), `reason` (required) | Staff, `moderation.action` | Record a warning against a member. Written to moderation history and the audit log. |
 | `/timeout` | `member` (required), `minutes` (required, 1 to 40320), `reason` (required) | Staff, `moderation.action` | Timeout a member for the given minutes and record the action. |
 | `/ticket-claim` | `ticket` (required ticket ID) | Staff, `tickets.manage` | Claim a ticket so one staff member owns the response. |
-| `/ticket-close` | `ticket` (optional ticket ID; omit when run inside the ticket channel) | Everyone (see note) | Close a ticket, build its transcript, store the transcript in the audit log, and delete the private channel. Known gap: this command currently has no permission check in code, so any member can close a ticket. Add a `tickets.manage` or owner-or-staff check before relying on tickets for sensitive conversations. |
+| `/ticket-close` | `ticket` (optional ticket ID; omit when run inside the ticket channel) | Ticket owner or staff, `tickets.manage` | Close a ticket, build its transcript, store it in the audit log, and delete the private channel. |
 | `/x-announce` | `url` (required X post URL) | Staff, `x.manage` | Manually announce one X post. The post id is parsed from the URL, deduped against announced posts, and the live timeline text is used when the API can fetch it. |
+| `/kick` | `member`, `reason` | Staff, `moderation.action` | Kick a member and record the action. |
+| `/ban` | `member`, `reason` | Staff, `moderation.action` | Ban a member and record the action. |
+| `/unban` | `user_id`, `reason` | Staff, `moderation.action` | Unban a user by Discord ID. |
+| `/purge` | `amount` (2-100) | Staff, `moderation.action` | Bulk-delete recent messages in the current text channel. Discord excludes messages older than 14 days. |
+| `/mod-history` | `member` | Staff, `moderation.view` | View the latest recorded moderation actions for a member. |
+| `/security status` | none | Staff, `moderation.view` | Inspect lockdown, spam, mention and invite-filter settings. |
+| `/security configure` | optional thresholds and filters | Staff, `moderation.action` | Configure spam threshold, detection window, mention limit, invite filter and suspicious-link action. |
+| `/security lockdown` | `action` (enable/disable) | Staff, `moderation.action` | Lock down text channels and restore their previous @everyone send permissions when disabled. |
+| `/ticket-setup` | `staff_role`, `category` (optional) | Staff, `config.manage` | Configure the staff role and category for private tickets. |
+| `/verification-setup` | minimum age, CAPTCHA, avatar, anti-raid window and threshold (optional) | Staff, `config.manage` | Configure verification and anti-raid requirements. |
+| `/x-setup` | username, channel, enabled, poll interval, filters | Staff, `x.manage` | Configure X timeline announcements. Requires `X_BEARER_TOKEN`. |
 
 ## Info commands
 
-These eight commands serve content from the `infoContent` row in
-`BotConfiguration`, editable in the dashboard. No text is hardcoded in
-the bot, so updating the copy never needs a code deploy.
+These seven commands serve content from the `infoContent` row in
+`BotConfiguration`, editable in the dashboard. `/socials` is separate: it
+reads saved links from the `socialLinks` configuration row.
 
 | Command | Content |
 | --- | --- |
@@ -69,14 +81,27 @@ the bot, so updating the copy never needs a code deploy.
 | `/updates` | Latest Overland updates |
 | `/faq` | Frequently asked questions |
 | `/opportunities` | Open opportunities |
-| `/socials` | Overland social accounts |
+| `/socials` | Saved social links, rendered as an embed with URL buttons |
+
+## Configuration commands
+
+| Command | Permission | What it does |
+| --- | --- | --- |
+| `/setup` | Everyone | Shows guided setup instructions for a selected feature. |
+| `/link add` | Staff, `config.manage` | Add a named HTTPS link. The key defaults to a normalized version of the label. |
+| `/link edit` | Staff, `config.manage` | Update the label and URL for an existing link key. |
+| `/link remove` | Staff, `config.manage` | Remove a saved link. |
+| `/link list` | Everyone | List configured links and keys. |
+| `/welcome setup` | Staff, `config.manage` | Set the welcome channel, title, message and enabled state. Supports `{user}` and `{server}` placeholders. |
+| `/welcome preview` | Everyone | Preview the current welcome embed privately. |
+
+Saved links live in the `socialLinks` BotConfiguration row. `/socials` reads this configuration at runtime and builds link buttons automatically. Welcome, ticket, verification, X and moderation settings are persisted in `BotConfiguration`; routine changes do not require a code deploy.
 
 ## X integration
 
 The X integration has no member-facing command. It works like this:
 
-- The bot polls the official Overland X timeline (X API v2) every
-  15 minutes, starting once at startup.
+- The bot polls the official Overland X timeline (X API v2) at the configured interval (15 minutes by default), starting once at startup.
 - Replies and reposts are ignored by default. This is configurable in
   the `xIntegration` configuration row.
 - New posts are deduped by post id in the `x_posts` table (unique

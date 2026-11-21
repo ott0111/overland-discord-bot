@@ -41,13 +41,14 @@ export function setSessionCookie(res: NextResponse, session: DashboardSession): 
   res.cookies.set(SESSION_COOKIE, sessionCookieValue(session), {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
     path: "/",
     maxAge: SESSION_MAX_AGE,
   });
 }
 
 export function clearSessionCookie(res: NextResponse): void {
-  res.cookies.set(SESSION_COOKIE, "", { httpOnly: true, path: "/", maxAge: 0 });
+  res.cookies.set(SESSION_COOKIE, "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge: 0 });
 }
 
 export function getSessionFromCookie(cookieHeader: string | null): DashboardSession | null {

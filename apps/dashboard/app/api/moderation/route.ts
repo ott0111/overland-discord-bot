@@ -4,7 +4,7 @@ import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "moderation.view");
   if (error) return error;
   try {
     const actions = await prisma.moderationAction.findMany({

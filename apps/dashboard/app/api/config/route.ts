@@ -4,7 +4,7 @@ import { requireStaff, writeAudit } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "config.manage");
   if (error) return error;
   try {
     return NextResponse.json(await prisma.botConfiguration.findMany({ orderBy: { key: "asc" } }));

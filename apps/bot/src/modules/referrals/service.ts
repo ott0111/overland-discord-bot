@@ -1,3 +1,4 @@
+import type { Guild } from "discord.js";
 import { prisma, audit } from "../../lib/db.js";
 import { awardPoints } from "../../lib/points.js";
 import { getPointValues } from "../../lib/config.js";
@@ -44,7 +45,6 @@ export async function verifyReferral(referralId: string) {
   if (referral.suspicious) throw new Error("Referral is flagged suspicious and needs staff review first");
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).verifiedReferral ?? 10;
-  await prisma.referral.update({ where: { id: referralId }, data: { verified: true, verifiedAt: new Date() } });
   await awardPoints({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
@@ -54,6 +54,14 @@ export async function verifyReferral(referralId: string) {
     reason: "Verified referral",
     idempotencyKey: `referral-${referralId}`,
   });
+  await prisma.referral.update({ where: { id: referralId }, data: { verified: true, verifiedAt: new Date() } });
+  const retentionDueAt = referral.createdAt.getTime() + 7 * 24 * 60 * 60 * 1000;
+  await enqueue(
+    "referral-retention",
+    { referralId },
+    "retention-verified-" + referralId,
+    Math.max(0, retentionDueAt - Date.now() + 1000),
+  );
   try {
     await checkAndGrant(referral.referrerId);
   } catch (err) {
@@ -67,16 +75,21 @@ export async function verifyReferral(referralId: string) {
  * when the referred member is still present and verified at least seven
  * days after joining. Idempotent on `retention-<referralId>`.
  */
-export async function checkRetention7d(referralId: string) {
+export async function checkRetention7d(referralId: string, guild?: Guild) {
   const referral = await prisma.referral.findUnique({ where: { id: referralId } });
   if (!referral || referral.retained7d || !referral.verified) return referral;
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   if (referral.createdAt > sevenDaysAgo) return referral;
-  const referred = await prisma.discordMember.findUnique({ where: { id: referral.referredId } });
+  if (!guild) return referral;
+  const referred = await prisma.discordMember.findUnique({ where: { id: referral.referredId }, include: { user: true } });
   if (!referred) return referral;
+  const presentMember = await guild.members.fetch(referred.user.discordId).catch((err) => {
+    if ((err as { code?: number }).code === 10007) return null;
+    throw err;
+  });
+  if (!presentMember) return referral;
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).sevenDayActive ?? 10;
-  await prisma.referral.update({ where: { id: referralId }, data: { retained7d: true } });
   await awardPoints({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
@@ -86,6 +99,7 @@ export async function checkRetention7d(referralId: string) {
     reason: "Referral active for seven days",
     idempotencyKey: `retention-${referralId}`,
   });
+  await prisma.referral.update({ where: { id: referralId }, data: { retained7d: true } });
   return prisma.referral.findUnique({ where: { id: referralId } });
 }
 
@@ -105,7 +119,6 @@ export async function checkComradeConversion(referralId: string) {
   if (!hasComrade) return referral;
   const values = await getPointValues();
   const amount = (values.referral as unknown as Record<string, number>).comradeBonus ?? 5;
-  await prisma.referral.update({ where: { id: referralId }, data: { becameComrade: true } });
   await awardPoints({
     memberId: referral.referrerId,
     currency: "OVERPOINTS",
@@ -115,6 +128,7 @@ export async function checkComradeConversion(referralId: string) {
     reason: "Referral became Comrade",
     idempotencyKey: `referral-comrade-${referralId}`,
   });
+  await prisma.referral.update({ where: { id: referralId }, data: { becameComrade: true } });
   return prisma.referral.findUnique({ where: { id: referralId } });
 }
 
