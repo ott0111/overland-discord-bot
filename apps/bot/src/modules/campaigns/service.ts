@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, audit } from "../../lib/db.js";
-import { awardPoints } from "../../lib/points.js";
+import { awardPointsWithinDailyLimit } from "../../lib/points.js";
 import { getPointValues } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
 import { checkAndGrant } from "../achievements/service.js";
@@ -200,7 +200,7 @@ export async function reviewSubmission(
     const updated = await tx.campaignSubmission.findUniqueOrThrow({ where: { id: submissionId } });
     let awarded: unknown = null;
     if (amount > 0) {
-      awarded = await awardPoints(
+      awarded = await awardPointsWithinDailyLimit(
         {
           memberId: submission.memberId,
           currency: "OVERPOINTS",
