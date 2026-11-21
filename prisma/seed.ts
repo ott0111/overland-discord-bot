@@ -35,7 +35,7 @@ async function main() {
     const founderMember = await prisma.discordMember.upsert({
       where: { userId: founderUser.id },
       update: {},
-      create: { userId: founderUser.id, guildId: process.env.DISCORD_GUILD_ID ?? "unconfigured" },
+      create: { userId: founderUser.id, guildId: process.env.DISCORD_GUILD_ID ?? "" },
     });
     await prisma.internalTeamMember.upsert({
       where: { discordId: founderDiscordId },
