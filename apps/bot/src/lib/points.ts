@@ -1,5 +1,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma, audit } from "./db.js";
+import { getConfig } from "./config.js";
+import { DAILY_LIMITS } from "@overland/shared";
 
 export interface AwardInput {
   memberId: string;
@@ -95,6 +97,53 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
 export async function awardPoints(input: AwardInput, tx?: TxClient) {
   if (tx) return awardWithTx(tx, input);
   return prisma.$transaction(async (inner) => awardWithTx(inner, input));
+}
+
+
+/**
+ * Award positive earnings under a per-member PostgreSQL advisory lock.
+ * This makes the daily cap race-safe across concurrent message events,
+ * submissions, referrals and check-ins. Pass a transaction client to
+ * compose the award with a parent operation.
+ */
+export async function awardPointsWithinDailyLimit(input: AwardInput, tx?: TxClient) {
+  if (!Number.isSafeInteger(input.amount) || input.amount <= 0) {
+    throw new Error("Daily-limited awards must be positive safe integers");
+  }
+
+  const run = async (client: TxClient) => {
+    await client.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${input.memberId}))`;
+    const existing = await client.pointTransaction.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) return { duplicate: true, transaction: existing };
+
+    const limits = await getConfig<{ overpoints: number; overcredits: number }>(
+      "dailyLimits",
+      DAILY_LIMITS,
+    );
+    const limit = input.currency === "OVERPOINTS"
+      ? limits.overpoints ?? DAILY_LIMITS.overpoints
+      : limits.overcredits ?? DAILY_LIMITS.overcredits;
+    const since = new Date();
+    since.setHours(0, 0, 0, 0);
+    const earned = await client.pointTransaction.aggregate({
+      where: {
+        memberId: input.memberId,
+        currency: input.currency,
+        createdAt: { gte: since },
+        amount: { gt: 0 },
+      },
+      _sum: { amount: true },
+    });
+    const earnedToday = earned._sum.amount ?? 0;
+    if (earnedToday + input.amount > limit) {
+      throw new Error("Daily " + input.currency.toLowerCase() + " earning limit reached");
+    }
+    return awardWithTx(client, input);
+  };
+
+  return tx ? run(tx) : prisma.$transaction(run);
 }
 
 export async function getBalance(memberId: string) {
