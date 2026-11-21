@@ -25,7 +25,9 @@ export async function awardDailyCheckin(memberId: string, streak: number) {
     idempotencyKey: key,
   });
 
-  const streakBonus = streak > 0 && streak % 7 === 0 && !result.duplicate ? 10 : 0;
+  const streakBonus = streak > 0 && streak % 7 === 0 && !result.duplicate
+    ? (values.community.streakBonus ?? 10)
+    : 0;
   if (streakBonus > 0) {
     await awardPointsWithinDailyLimit({
       memberId,
