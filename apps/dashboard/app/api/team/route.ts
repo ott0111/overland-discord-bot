@@ -11,7 +11,7 @@ const GROUP_NAME_MAP: Record<string, string> = {
 
 async function activeOwnerCount(): Promise<number> {
   return prisma.internalTeamMember.count({
-    where: { status: "ACTIVE", group: { name: "Owner" } },
+    where: { status: "ACTIVE", group: { is: { name: "Owner" } } },
   });
 }
 
