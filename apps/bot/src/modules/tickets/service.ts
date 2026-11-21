@@ -79,6 +79,10 @@ export async function createTicketChannel(
           id: memberDiscordId,
           allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory],
         },
+        {
+          id: guild.client.user.id,
+          allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages, PermissionsBitField.Flags.ReadMessageHistory, PermissionsBitField.Flags.ManageChannels],
+        },
         ...(config.staffRoleId
           ? [
               {
