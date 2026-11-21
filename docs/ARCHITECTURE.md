@@ -134,7 +134,8 @@ rules are in one place.
 | `tickets` | Ticket creation with private channels, claim, first-response tracking, close with transcript, archive, reopen, add/remove members, rating. |
 | `moderation` | Configurable spam, duplicate, suspicious-link, invite, mass-mention and profanity filters; warnings, timeouts, kicks, bans, unbans, purge, moderation history and reversible lockdown. |
 | `x-integration` | Poll the X timeline, announce new posts, manual announcement, post history, pure dedupe and announce filters. |
-| `settings` | Persistent HTTPS social links and welcome settings edited through slash commands. |\n| `info` | Info page content served from `BotConfiguration`, editable in the dashboard, never hardcoded. |
+| `settings` | Persistent HTTPS social links and welcome settings edited through slash commands. |
+| `info` | Info page content served from `BotConfiguration`, editable in the dashboard, never hardcoded. |
 
 ## 7. Database
 
