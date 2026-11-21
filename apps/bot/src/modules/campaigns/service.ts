@@ -20,7 +20,7 @@ export interface CreateCampaignInput {
 
 export interface SubmitWorkInput {
   content: string;
-  category?: "community" | "social" | "creative" | "research" | "education";
+  category?: "community" | "social" | "creative" | "research" | "education" | "social_post" | "infographic" | "educational_thread" | "article" | "campaign_contribution" | "video" | "graphic_design" | "industry_research" | "contribution_article" | "product_feedback" | "community_initiative" | "significant_contribution";
   linkUrl?: string | null;
   imageUrl?: string | null;
 }
@@ -113,7 +113,7 @@ export async function submitWork(memberId: string, campaignId: string, input: Su
   if (input.linkUrl && !isValidUrl(input.linkUrl)) throw new Error("Submission link is not a valid URL");
   if (input.imageUrl && !isValidUrl(input.imageUrl)) throw new Error("Image link is not a valid URL");
   const category = input.category ?? "social";
-  if (!["community", "social", "creative", "research", "education"].includes(category)) {
+  if (!["community", "social", "creative", "research", "education", "social_post", "infographic", "educational_thread", "article", "campaign_contribution", "video", "graphic_design", "industry_research", "contribution_article", "product_feedback", "community_initiative", "significant_contribution"].includes(category)) {
     throw new Error("Submission category is not supported");
   }
   const existing = await prisma.campaignSubmission.findFirst({
@@ -173,18 +173,35 @@ export async function reviewSubmission(
   const contributionValues = values.contribution as unknown as Record<string, number>;
   const communityValues = values.community as unknown as Record<string, number>;
   const defaults: Record<string, number> = {
-    social: socialValues.campaignContribution ?? 20,
     community: communityValues.approvedContribution ?? 20,
+    social: socialValues.campaignContribution ?? 20,
+    social_post: socialValues.xPost ?? 15,
+    infographic: socialValues.infographic ?? 25,
+    educational_thread: socialValues.educationalThread ?? 30,
+    article: socialValues.article ?? 30,
+    campaign_contribution: socialValues.campaignContribution ?? 20,
+    video: socialValues.video ?? 30,
     creative: contributionValues.graphic ?? 25,
+    graphic_design: contributionValues.graphic ?? 25,
     research: contributionValues.research ?? 30,
+    industry_research: contributionValues.research ?? 30,
     education: contributionValues.article ?? 30,
+    contribution_article: contributionValues.article ?? 30,
+    product_feedback: contributionValues.feedback ?? 15,
+    community_initiative: contributionValues.initiative ?? 40,
+    significant_contribution: contributionValues.significantMin ?? 50,
   };
   const amount = pointsOverride ?? (submission.campaign.pointReward > 0
     ? submission.campaign.pointReward
     : (defaults[category] ?? 20));
   if (!Number.isSafeInteger(amount) || amount < 0) throw new Error("Award amount must be a non-negative integer");
-  const pointCategory = category === "social" ? "social" : category === "community" ? "community" : "contribution";
-  const transactionSource = category === "social" ? "SOCIAL_SUBMISSION" : "CONTRIBUTION";
+  if (category === "significant_contribution" &&
+      (amount < (contributionValues.significantMin ?? 50) || amount > (contributionValues.significantMax ?? 100))) {
+    throw new Error("Significant contribution awards must stay within the configured minimum and maximum");
+  }
+  const socialCategories = ["social", "social_post", "infographic", "educational_thread", "article", "campaign_contribution", "video"];
+  const pointCategory = socialCategories.includes(category) ? "social" : category === "community" ? "community" : "contribution";
+  const transactionSource = pointCategory === "social" ? "SOCIAL_SUBMISSION" : "CONTRIBUTION";
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const transition = await tx.campaignSubmission.updateMany({
       where: { id: submissionId, status: "PENDING" },
