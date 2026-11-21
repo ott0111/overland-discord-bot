@@ -89,12 +89,15 @@ export function registerEvents(client: Client): void {
       const welcome = await getWelcomeSettings();
       if (welcome.enabled && welcome.channelId) {
         const channel = await member.guild.channels.fetch(welcome.channelId).catch(() => null);
+        const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
+        const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
+        const welcomeEmbed = overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL());
         if (channel?.isTextBased() && "send" in channel) {
-          const title = welcome.title.replaceAll("{user}", member.user.username).replaceAll("{server}", member.guild.name);
-          const message = welcome.message.replaceAll("{user}", "<@" + member.id + ">").replaceAll("{server}", member.guild.name);
-          await (channel as import("discord.js").TextChannel).send({
-            embeds: [overlandEmbed(title, message).setThumbnail(member.user.displayAvatarURL())],
-          });
+          await (channel as import("discord.js").TextChannel).send({ embeds: [welcomeEmbed] });
+        }
+        if (welcome.sendDm) {
+          await member.send({ embeds: [welcomeEmbed] }).catch((err) =>
+            logger.debug({ err, memberId: member.id }, "Welcome DM could not be delivered"));
         }
       }
       await audit(null, "member.join", "DiscordMember", member.id, { accountAgeDays: Math.round(accountAgeDays) });
