@@ -1,363 +1,562 @@
 
 // Overland Core - PostgreSQL + Prisma
-generator client { provider = "prisma-client-js" }
-datasource db { provider = "postgresql"; url = env("DATABASE_URL") }
 
-enum TeamStatus { ACTIVE INACTIVE SUSPENDED REMOVED }
-enum PermissionGroupName { Owner Executive Administration Moderation Development Support Rewards_Management }
-enum CurrencyKind { OVERPOINTS OVERCREDITS }
-enum TransactionSource { DAILY_CHECKIN PARTICIPATION HELPFUL_ANSWER EVENT WEEKLY_CHALLENGE CONTRIBUTION SOCIAL_SUBMISSION REFERRAL REFERRAL_RETENTION REFERRAL_COMRADE REWARD_CLAIM ADMIN_ADJUSTMENT ACHIEVEMENT STREAK_BONUS }
-enum CampaignStatus { DRAFT ACTIVE ENDED CANCELLED }
-enum SubmissionStatus { PENDING APPROVED REJECTED }
-enum RewardClaimStatus { PENDING APPROVED REJECTED FULFILLED CANCELLED }
-enum TicketStatus { OPEN CLAIMED CLOSED ARCHIVED }
-enum ModerationActionType { WARN TIMEOUT KICK BAN UNBAN NOTE LOCKDOWN }
-enum AchievementKind { VERIFICATION CONTRIBUTION REFERRAL SOCIAL MILESTONE EVENT STREAK CUSTOM }
-enum LeaderboardPeriod { LIFETIME MONTHLY WEEKLY }
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────
+
+enum TeamStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+  REMOVED
+}
+
+enum PermissionGroupName {
+  Owner
+  Executive
+  Administration
+  Moderation
+  Development
+  Support
+  Rewards_Management
+}
+
+enum CurrencyKind {
+  OVERPOINTS
+  OVERCREDITS
+}
+
+enum TransactionSource {
+  DAILY_CHECKIN
+  PARTICIPATION
+  HELPFUL_ANSWER
+  EVENT
+  WEEKLY_CHALLENGE
+  CONTRIBUTION
+  SOCIAL_SUBMISSION
+  REFERRAL
+  REFERRAL_RETENTION
+  REFERRAL_COMRADE
+  REWARD_CLAIM
+  ADMIN_ADJUSTMENT
+  ACHIEVEMENT
+  STREAK_BONUS
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+  CANCELLED
+}
+
+enum SubmissionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum RewardClaimStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  FULFILLED
+  CANCELLED
+}
+
+enum TicketStatus {
+  OPEN
+  CLAIMED
+  CLOSED
+  ARCHIVED
+}
+
+enum ModerationActionType {
+  WARN
+  TIMEOUT
+  KICK
+  BAN
+  UNBAN
+  NOTE
+  LOCKDOWN
+}
+
+enum AchievementKind {
+  VERIFICATION
+  CONTRIBUTION
+  REFERRAL
+  SOCIAL
+  MILESTONE
+  EVENT
+  STREAK
+  CUSTOM
+}
+
+enum LeaderboardPeriod {
+  LIFETIME
+  MONTHLY
+  WEEKLY
+}
+
+// ─────────────────────────────────────────────
+// USERS & DISCORD MEMBERS
+// ─────────────────────────────────────────────
 
 model User {
-  id String @id @default(cuid())
-  discordId String @unique
-  username String
+  id        String   @id @default(cuid())
+  discordId String   @unique
+  username  String
   avatarUrl String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
   member DiscordMember?
+
   @@map("users")
 }
+
 model DiscordMember {
-  id String @id @default(cuid())
-  userId String @unique
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  guildId String
-  joinedAt DateTime?
-  verifiedAt DateTime?
-  xFollowVerified Boolean @default(false)
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  guildId          String
+  joinedAt         DateTime?
+  verifiedAt       DateTime?
+  xFollowVerified  Boolean   @default(false)
   xFollowVerifiedAt DateTime?
-  isSuspicious Boolean @default(false)
-  lastMessageAt DateTime?
-  messageCount Int @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  roles MemberRole[]
-  roleHistory RoleHistory[]
-  balance PointBalance?
-  transactions PointTransaction[]
-  referralsGiven Referral[] @relation("Referrer")
-  referralsReceived Referral[] @relation("Referred")
-  submissions CampaignSubmission[]
-  claims RewardClaim[]
-  achievements MemberAchievement[]
-  checkins DailyCheckin[]
-  tickets Ticket[]
-  moderationActions ModerationAction[] @relation("ModerationTarget")
-  teamRecord InternalTeamMember?
+  isSuspicious     Boolean   @default(false)
+  lastMessageAt    DateTime?
+  messageCount     Int       @default(0)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  roles              MemberRole[]
+  roleHistory        RoleHistory[]
+  balance            PointBalance?
+  transactions       PointTransaction[]
+  referralsGiven     Referral[] @relation("Referrer")
+  referralsReceived  Referral[] @relation("Referred")
+  submissions        CampaignSubmission[]
+  claims             RewardClaim[]
+  achievements       MemberAchievement[]
+  checkins           DailyCheckin[]
+  tickets            Ticket[]
+  moderationActions  ModerationAction[] @relation("ModerationTarget")
+  teamRecord         InternalTeamMember?
+
   @@index([guildId])
   @@map("discord_members")
 }
+
+// ─────────────────────────────────────────────
+// ROLES & PERMISSIONS
+// ─────────────────────────────────────────────
+
 model Role {
-  id String @id @default(cuid())
-  name String @unique
-  discordRoleId String? @unique
-  description String?
-  isInternal Boolean @default(false)
+  id             String   @id @default(cuid())
+  name           String   @unique
+  discordRoleId  String?  @unique
+  description    String?
+  isInternal     Boolean  @default(false)
   isSelfAssignable Boolean @default(false)
   requiresRoleId String?
-  requiresRole Role? @relation("RoleRequirement", fields: [requiresRoleId], references: [id])
-  dependents Role[] @relation("RoleRequirement")
-  minOverpoints Int?
-  sortOrder Int @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  requiresRole   Role?    @relation("RoleRequirement", fields: [requiresRoleId], references: [id])
+  dependents     Role[]
+    @relation("RoleRequirement")
+  minOverpoints  Int?
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   members MemberRole[]
   history RoleHistory[]
+
   @@map("roles")
 }
+
 model MemberRole {
-  id String @id @default(cuid())
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  roleId String
-  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  id        String        @id @default(cuid())
+  memberId  String
+  member    DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role          @relation(fields: [roleId], references: [id], onDelete: Cascade)
   grantedBy String?
-  grantedAt DateTime @default(now())
+  grantedAt DateTime      @default(now())
   expiresAt DateTime?
+
   @@unique([memberId, roleId])
   @@index([memberId])
   @@map("member_roles")
 }
+
 model RoleHistory {
-  id String @id @default(cuid())
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  roleId String
-  role Role @relation(fields: [roleId], references: [id])
-  action String
-  actorId String?
-  reason String?
-  createdAt DateTime @default(now())
+  id        String        @id @default(cuid())
+  memberId  String
+  member    DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  roleId    String
+  role      Role          @relation(fields: [roleId], references: [id])
+  action    String
+  actorId   String?
+  reason    String?
+  createdAt DateTime      @default(now())
+
   @@index([memberId])
   @@map("role_history")
 }
+
 model PermissionGroup {
-  id String @id @default(cuid())
-  name PermissionGroupName @unique
+  id          String               @id @default(cuid())
+  name        PermissionGroupName  @unique
   description String?
+
   permissions Permission[]
-  members InternalTeamMember[]
+  members     InternalTeamMember[]
+
   @@map("permission_groups")
 }
+
 model Permission {
-  id String @id @default(cuid())
-  key String @unique
+  id          String         @id @default(cuid())
+  key         String         @unique
   description String?
-  groupId String
-  group PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  groupId     String
+  group       PermissionGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
   @@map("permissions")
 }
+
 model InternalTeamMember {
-  id String @id @default(cuid())
-  memberId String @unique
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  discordId String @unique
-  username String
-  publicRole String
-  jobTitle String
-  department String
+  id              String         @id @default(cuid())
+  memberId        String         @unique
+  member          DiscordMember  @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  discordId       String         @unique
+  username        String
+  publicRole      String
+  jobTitle        String
+  department      String
   responsibilities String?
-  groupId String
-  group PermissionGroup @relation(fields: [groupId], references: [id])
-  status TeamStatus @default(ACTIVE)
-  addedAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  groupId         String
+  group           PermissionGroup @relation(fields: [groupId], references: [id])
+  status          TeamStatus     @default(ACTIVE)
+  addedAt         DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
   @@map("internal_team_members")
 }
+
+// ─────────────────────────────────────────────
+// POINTS & TRANSACTIONS
+// ─────────────────────────────────────────────
+
 model PointBalance {
-  id String @id @default(cuid())
-  memberId String @unique
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  overpoints Int @default(0)
-  overcredits Int @default(0)
-  communityPoints Int @default(0)
-  socialPoints Int @default(0)
-  referralPoints Int @default(0)
-  contributionPoints Int @default(0)
-  updatedAt DateTime @updatedAt
+  id                 String        @id @default(cuid())
+  memberId            String        @unique
+  member              DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  overpoints          Int           @default(0)
+  overcredits         Int           @default(0)
+  communityPoints     Int           @default(0)
+  socialPoints        Int           @default(0)
+  referralPoints      Int           @default(0)
+  contributionPoints  Int           @default(0)
+  updatedAt           DateTime      @updatedAt
+
   @@map("point_balances")
 }
+
 model PointTransaction {
-  id String @id @default(cuid())
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  currency CurrencyKind
-  category String
-  amount Int
-  balanceAfter Int
-  source TransactionSource
-  idempotencyKey String @unique
-  reason String?
-  actorId String?
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  memberId       String
+  member         DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  currency       CurrencyKind
+  category       String
+  amount         Int
+  balanceAfter   Int
+  source         TransactionSource
+  idempotencyKey String        @unique
+  reason         String?
+  actorId        String?
+  createdAt      DateTime      @default(now())
+
   @@index([memberId, createdAt])
   @@index([idempotencyKey])
   @@map("point_transactions")
 }
+
+// ─────────────────────────────────────────────
+// CAMPAIGNS & SUBMISSIONS
+// ─────────────────────────────────────────────
+
 model Campaign {
-  id String @id @default(cuid())
-  name String
-  description String
-  objectives String?
-  startsAt DateTime
-  endsAt DateTime
-  tasks Json?
-  pointReward Int @default(0)
+  id                     String         @id @default(cuid())
+  name                   String
+  description            String
+  objectives             String?
+  startsAt               DateTime
+  endsAt                 DateTime
+  tasks                  Json?
+  pointReward            Int            @default(0)
   submissionRequirements String?
-  status CampaignStatus @default(DRAFT)
-  createdBy String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  status                 CampaignStatus @default(DRAFT)
+  createdBy              String?
+  createdAt              DateTime       @default(now())
+  updatedAt              DateTime       @updatedAt
+
   submissions CampaignSubmission[]
+
   @@index([status])
   @@map("campaigns")
 }
+
 model CampaignSubmission {
-  id String @id @default(cuid())
-  campaignId String
-  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  content String
-  linkUrl String?
-  imageUrl String?
-  status SubmissionStatus @default(PENDING)
-  feedback String?
-  pointsAwarded Int @default(0)
-  reviewedBy String?
-  reviewedAt DateTime?
-  createdAt DateTime @default(now())
+  id            String          @id @default(cuid())
+  campaignId    String
+  campaign      Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  memberId      String
+  member        DiscordMember   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  content       String
+  linkUrl       String?
+  imageUrl      String?
+  status        SubmissionStatus @default(PENDING)
+  feedback      String?
+  pointsAwarded Int             @default(0)
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  createdAt     DateTime        @default(now())
+
   @@index([campaignId, status])
   @@map("campaign_submissions")
 }
+
+// ─────────────────────────────────────────────
+// REFERRALS
+// ─────────────────────────────────────────────
+
 model Referral {
-  id String @id @default(cuid())
-  referrerId String
-  referrer DiscordMember @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
-  referredId String
-  referred DiscordMember @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
-  inviteCode String
-  verified Boolean @default(false)
-  verifiedAt DateTime?
-  retained7d Boolean @default(false)
-  becameComrade Boolean @default(false)
-  suspicious Boolean @default(false)
-  createdAt DateTime @default(now())
+  id             String        @id @default(cuid())
+  referrerId     String
+  referrer       DiscordMember @relation("Referrer", fields: [referrerId], references: [id], onDelete: Cascade)
+  referredId     String
+  referred       DiscordMember @relation("Referred", fields: [referredId], references: [id], onDelete: Cascade)
+  inviteCode     String
+  verified       Boolean       @default(false)
+  verifiedAt     DateTime?
+  retained7d     Boolean       @default(false)
+  becameComrade  Boolean       @default(false)
+  suspicious     Boolean       @default(false)
+  createdAt      DateTime      @default(now())
+
   @@unique([referrerId, referredId])
   @@index([inviteCode])
   @@map("referrals")
 }
+
+// ─────────────────────────────────────────────
+// REWARDS
+// ─────────────────────────────────────────────
+
 model Reward {
-  id String @id @default(cuid())
-  name String
-  description String
-  imageUrl String?
+  id             String   @id @default(cuid())
+  name           String
+  description    String
+  imageUrl       String?
   costOvercredits Int
-  stock Int?
-  eligibility String?
-  active Boolean @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  stock          Int?
+  eligibility    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
   claims RewardClaim[]
+
   @@map("rewards")
 }
+
 model RewardClaim {
-  id String @id @default(cuid())
-  rewardId String
-  reward Reward @relation(fields: [rewardId], references: [id])
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  status RewardClaimStatus @default(PENDING)
+  id              String           @id @default(cuid())
+  rewardId        String
+  reward          Reward           @relation(fields: [rewardId], references: [id])
+  memberId        String
+  member          DiscordMember    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  status          RewardClaimStatus @default(PENDING)
   costOvercredits Int
-  idempotencyKey String @unique
-  reviewedBy String?
-  createdAt DateTime @default(now())
+  idempotencyKey  String           @unique
+  reviewedBy      String?
+  createdAt       DateTime         @default(now())
+
   @@index([memberId])
   @@map("reward_claims")
 }
+
+// ─────────────────────────────────────────────
+// ACHIEVEMENTS
+// ─────────────────────────────────────────────
+
 model Achievement {
-  id String @id @default(cuid())
-  key String @unique
-  name String
-  description String
-  kind AchievementKind
-  threshold Int @default(1)
-  overpointsReward Int @default(0)
-  overcreditsReward Int @default(0)
-  active Boolean @default(true)
+  id                String          @id @default(cuid())
+  key               String          @unique
+  name              String
+  description       String
+  kind              AchievementKind
+  threshold         Int             @default(1)
+  overpointsReward  Int             @default(0)
+  overcreditsReward Int             @default(0)
+  active            Boolean         @default(true)
+
   members MemberAchievement[]
+
   @@map("achievements")
 }
+
 model MemberAchievement {
-  id String @id @default(cuid())
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  id            String        @id @default(cuid())
+  memberId      String
+  member        DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
   achievementId String
-  achievement Achievement @relation(fields: [achievementId], references: [id])
-  awardedAt DateTime @default(now())
+  achievement   Achievement   @relation(fields: [achievementId], references: [id])
+  awardedAt     DateTime      @default(now())
+
   @@unique([memberId, achievementId])
   @@map("member_achievements")
 }
+
+// ─────────────────────────────────────────────
+// DAILY CHECK-INS & LEADERBOARDS
+// ─────────────────────────────────────────────
+
 model DailyCheckin {
-  id String @id @default(cuid())
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
-  date DateTime @db.Date
-  streak Int @default(1)
-  createdAt DateTime @default(now())
+  id        String        @id @default(cuid())
+  memberId  String
+  member    DiscordMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  date      DateTime      @db.Date
+  streak    Int           @default(1)
+  createdAt DateTime      @default(now())
+
   @@unique([memberId, date])
   @@map("daily_checkins")
 }
+
 model LeaderboardSnapshot {
-  id String @id @default(cuid())
-  period LeaderboardPeriod
-  category String
+  id        String           @id @default(cuid())
+  period    LeaderboardPeriod
+  category  String
   periodKey String
-  memberId String
-  rank Int
-  score Int
-  createdAt DateTime @default(now())
+  memberId  String
+  rank      Int
+  score     Int
+  createdAt DateTime         @default(now())
+
   @@index([period, category, periodKey, rank])
   @@map("leaderboard_snapshots")
 }
+
+// ─────────────────────────────────────────────
+// TICKETS
+// ─────────────────────────────────────────────
+
 model Ticket {
-  id String @id @default(cuid())
-  number Int @unique @default(autoincrement())
-  category String
-  channelId String? @unique
-  memberId String
-  member DiscordMember @relation(fields: [memberId], references: [id])
-  status TicketStatus @default(OPEN)
-  claimedBy String?
-  rating Int?
+  id              String        @id @default(cuid())
+  number          Int           @unique @default(autoincrement())
+  category        String
+  channelId       String?       @unique
+  memberId        String
+  member          DiscordMember @relation(fields: [memberId], references: [id])
+  status          TicketStatus  @default(OPEN)
+  claimedBy       String?
+  rating          Int?
   firstResponseAt DateTime?
-  closedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  closedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
   messages TicketMessage[]
+
   @@map("tickets")
 }
+
 model TicketMessage {
-  id String @id @default(cuid())
-  ticketId String
-  ticket Ticket @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  authorId String
-  content String
+  id        String   @id @default(cuid())
+  ticketId  String
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  authorId  String
+  content   String
   createdAt DateTime @default(now())
+
   @@index([ticketId])
   @@map("ticket_messages")
 }
+
+// ─────────────────────────────────────────────
+// MODERATION
+// ─────────────────────────────────────────────
+
 model ModerationAction {
-  id String @id @default(cuid())
-  targetId String
-  target DiscordMember @relation("ModerationTarget", fields: [targetId], references: [id])
-  actorId String
-  type ModerationActionType
-  reason String?
+  id              String              @id @default(cuid())
+  targetId        String
+  target          DiscordMember       @relation("ModerationTarget", fields: [targetId], references: [id])
+  actorId         String
+  type            ModerationActionType
+  reason          String?
   durationMinutes Int?
-  createdAt DateTime @default(now())
+  createdAt       DateTime            @default(now())
+
   @@index([targetId])
   @@map("moderation_actions")
 }
+
+// ─────────────────────────────────────────────
+// X INTEGRATION
+// ─────────────────────────────────────────────
+
 model XPost {
-  id String @id @default(cuid())
-  postId String @unique
-  authorUsername String
-  text String
-  url String
-  mediaUrls Json?
-  isReply Boolean @default(false)
-  isRepost Boolean @default(false)
-  announcedAt DateTime?
+  id                 String   @id @default(cuid())
+  postId             String   @unique
+  authorUsername     String
+  text               String
+  url                String
+  mediaUrls          Json?
+  isReply            Boolean  @default(false)
+  isRepost           Boolean  @default(false)
+  announcedAt        DateTime?
   announcedChannelId String?
-  createdAt DateTime @default(now())
+  createdAt          DateTime @default(now())
+
   @@index([createdAt])
   @@map("x_posts")
 }
+
+// ─────────────────────────────────────────────
+// CONFIGURATION & AUDIT LOGS
+// ─────────────────────────────────────────────
+
 model BotConfiguration {
-  id String @id @default(cuid())
-  key String @unique
-  value Json
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     Json
   updatedBy String?
   updatedAt DateTime @updatedAt
+
   @@map("bot_configuration")
 }
+
 model AuditLog {
-  id String @id @default(cuid())
-  actorId String?
-  action String
+  id         String   @id @default(cuid())
+  actorId    String?
+  action     String
   entityType String?
-  entityId String?
-  details Json?
-  createdAt DateTime @default(now())
+  entityId   String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
   @@index([actorId, createdAt])
   @@map("audit_logs")
 }
