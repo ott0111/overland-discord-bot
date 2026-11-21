@@ -20,8 +20,9 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const { session, error } = await requireStaff(req, "team.manage");
+  const { session, error } = await requireStaff(req);
   if (error) return error;
+  if (session?.group !== "Owner") return NextResponse.json({ error: "Only an Owner can change permission group definitions" }, { status: 403 });
   const body = (await req.json()) as { groupId?: string; keys?: string[] };
   if (!body.groupId || !Array.isArray(body.keys)) {
     return NextResponse.json({ error: "groupId and keys[] are required" }, { status: 400 });
