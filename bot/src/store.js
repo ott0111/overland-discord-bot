@@ -13,7 +13,7 @@ const defaults = () => ({
     verificationChannelId: null, verificationEnabled: false, verification: { enabled: true, minAccountAgeDays: 0, requireAvatar: false, antiRaidWindowMinutes: 10, antiRaidThreshold: 10 },
     roleIds: {}, info: {}, links: [], x: { username: null, channelId: null, ignoreReplies: true, ignoreReposts: true, lastPostId: null },
     dailyLimits: { OVERPOINTS: 100, OVERCREDITS: 250 }, pointValues: {
-      daily: 10, participation: 2, helpful: 5, event: 15, weekly: 20,
+      daily: 5, participation: 2, helpful: 5, event: 15, weekly: 20, streakBonus: 10, verifiedReferral: 10, sevenDayActive: 10, comradeBonus: 5,
       social_post: 15, infographic: 25, educational_thread: 30, article: 30,
       campaign_contribution: 20, video: 30, graphic_design: 25,
       industry_research: 30, contribution_article: 30, product_feedback: 15,
