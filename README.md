@@ -12,7 +12,7 @@ Central operating system for the Overland Finance Discord community. Discord bot
 
 ## Structure
 
-- `apps/bot` Discord bot, commands, modules, events, jobs, tests
+- `apps/bot` Discord bot, editable setup commands, moderation, modules, events, durable jobs, tests
 - `apps/dashboard` Next.js admin dashboard (17 sections)
 - `packages/shared` Brand, roles, permissions, point values
 - `prisma` Schema, initial migration, seed
@@ -21,6 +21,10 @@ Central operating system for the Overland Finance Discord community. Discord bot
 ## Brand
 
 Emerald #00C982, Lime Yellow #C5E86C, dark backgrounds, white and muted grey type. No em dash character in bot content.
+
+## Editable Discord configuration
+
+Staff can manage saved HTTPS links with `/link add`, `/link edit` and `/link remove`; `/socials` publishes them as a branded embed with URL buttons. `/welcome setup`, `/ticket-setup`, `/verification-setup`, `/x-setup` and `/security configure` manage persistent settings without source edits. See [docs/COMMANDS.md](docs/COMMANDS.md).
 
 ## Credentials required
 
