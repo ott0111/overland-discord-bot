@@ -4,7 +4,7 @@ import { requireStaff, writeAudit } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req);
+  const { error } = await requireStaff(req, "tickets.view");
   if (error) return error;
   const params = new URL(req.url).searchParams;
   const id = params.get("id") ?? undefined;
