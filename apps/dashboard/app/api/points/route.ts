@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { prisma } from "../../../lib/prisma";
 import { requireStaff, writeAudit } from "../../../lib/auth";
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
     });
     if (!member) return NextResponse.json({ error: "Member not found (use Discord ID or member ID)" }, { status: 404 });
     const field = body.currency === "OVERPOINTS" ? "overpoints" : "overcredits";
-    const result = await prisma.$transaction(async (tx: never) => {
+    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       const t = tx as unknown as {
         pointBalance: {
           findUnique: (a: unknown) => Promise<{ overpoints: number; overcredits: number } | null>;
