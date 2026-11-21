@@ -206,8 +206,24 @@ export async function checkProgression(memberId: string, actorId: string, guild?
 export async function grantCitizenAfterVerification(memberId: string, actorId: string, guild?: Guild) {
   const member = await prisma.discordMember.findUnique({ where: { id: memberId } });
   if (!member) throw new Error("Member not found");
-  await prisma.discordMember.update({ where: { id: memberId }, data: { verifiedAt: new Date() } });
+  const updated = await prisma.discordMember.update({
+    where: { id: memberId },
+    data: { verifiedAt: new Date() },
+  });
   await assignRole(memberId, "Citizen", actorId, "Verification completed", guild);
+
+  // If X follow was verified before Discord verification, grant Comrade now
+  // that the Citizen prerequisite is satisfied.
+  if (updated.xFollowVerified) {
+    await assignRole(memberId, "Comrade", actorId, "Citizen and X follow requirements satisfied", guild);
+    const referral = await prisma.referral.findFirst({ where: { referredId: memberId, verified: true } });
+    if (referral) {
+      await checkComradeConversion(referral.id).catch((err) =>
+        audit(actorId, "referrals.comrade_bonus_failed", "Referral", referral.id, {
+          message: err instanceof Error ? err.message : String(err),
+        }));
+    }
+  }
 }
 
 /**
