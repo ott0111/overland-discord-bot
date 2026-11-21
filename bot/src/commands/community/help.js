@@ -1,6 +1,6 @@
 import {SlashCommandBuilder} from "discord.js";import {command,embed} from "../helpers.js";
 export default command(new SlashCommandBuilder().setName("help").setDescription("Browse Overland Core commands"),async i=>{const e=embed("OVERLAND CORE  /  COMMAND DIRECTORY","Your command reference for the Overland community.").addFields(
-{name:"COMMUNITY",value:"/profile · /daily · /leaderboard · /invite · /referrals · /roles · /rewards · /achievements · /campaigns · /submit",inline:false},
+{name:"COMMUNITY",value:"/profile · /daily · /leaderboard · /invite · /referrals · /rewards · /campaigns · /submit · /socials · /poll",inline:false},
 {name:"SUPPORT",value:"/ticket open · /ticket close · /ticket claim · /ticket add · /ticket remove · /ticket rename · /ticket transcript · /ticket status",inline:false},
 {name:"MODERATION",value:"/ban · /unban · /kick · /timeout · /untimeout · /warn · /warnings · /purge · /slowmode · /lock · /unlock · /modlogs · /case · /nickname",inline:false},
 {name:"UTILITY",value:"/ping · /serverinfo · /userinfo · /avatar · /banner · /servericon · /serverbanner · /membercount · /roleinfo · /channelinfo · /botinfo · /uptime · /permissions",inline:false},
