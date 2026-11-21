@@ -30,10 +30,9 @@ export function registerJobs(client?: Client): void {
 }
 
 export async function scheduleRecurring(): Promise<void> {
-  const hourKey = new Date().toISOString().slice(0, 13);
-  await enqueue("x-poll", {}, "x-poll-" + hourKey, 0);
+  const slotKey = () => String(Math.floor(Date.now() / (15 * 60 * 1000)));
+  await enqueue("x-poll", {}, "x-poll-" + slotKey(), 0);
   setInterval(() => {
-    const key = new Date().toISOString().slice(0, 13);
-    enqueue("x-poll", {}, "x-poll-" + key).catch(() => undefined);
+    enqueue("x-poll", {}, "x-poll-" + slotKey()).catch(() => undefined);
   }, 15 * 60 * 1000);
 }
