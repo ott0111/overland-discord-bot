@@ -53,7 +53,7 @@ async function awardWithTx(tx: TxClient, input: AwardInput) {
   };
 
   const categoryField = CATEGORY_FIELD[input.category];
-  if (categoryField && input.amount > 0) {
+  if (input.currency === "OVERPOINTS" && categoryField && input.amount > 0) {
     data[categoryField] = { increment: input.amount };
   }
 
