@@ -472,6 +472,33 @@ function xSetupCmd(): Command {
 
 export const commands: Command[] = [
   profileCmd(), dailyCmd(), leaderboardCmd(),
+  simpleCmd("analytics", "View Overland community analytics", async (i) => {
+    if (!(await requirePerm(i, "analytics.view"))) return;
+    await i.deferReply({ ephemeral: true });
+    const [members, verified, suspicious, balances, submissions, referrals, pendingClaims, posts] = await Promise.all([
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "" } }),
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "", verifiedAt: { not: null } } }),
+      prisma.discordMember.count({ where: { guildId: i.guildId ?? "", isSuspicious: true } }),
+      prisma.pointBalance.aggregate({ _sum: { overpoints: true, overcredits: true } }),
+      prisma.campaignSubmission.count({ where: { status: "APPROVED" } }),
+      prisma.referral.count({ where: { verified: true } }),
+      prisma.rewardClaim.count({ where: { status: "PENDING" } }),
+      prisma.xPost.count(),
+    ]);
+    const embed = overlandEmbed("Overland community analytics", "A live overview of the connected community.")
+      .addFields(
+        { name: "Members", value: members.toLocaleString(), inline: true },
+        { name: "Verified Citizens", value: verified.toLocaleString(), inline: true },
+        { name: "Flagged accounts", value: suspicious.toLocaleString(), inline: true },
+        { name: "Lifetime Overpoints", value: (balances._sum.overpoints ?? 0).toLocaleString(), inline: true },
+        { name: "Overcredits in circulation", value: (balances._sum.overcredits ?? 0).toLocaleString(), inline: true },
+        { name: "Approved submissions", value: submissions.toLocaleString(), inline: true },
+        { name: "Verified referrals", value: referrals.toLocaleString(), inline: true },
+        { name: "Pending reward claims", value: pendingClaims.toLocaleString(), inline: true },
+        { name: "X posts tracked", value: posts.toLocaleString(), inline: true },
+      );
+    await i.editReply({ embeds: [embed] });
+  }),
   simpleCmd("about", "About Overland Finance", (i) => replyInfo(i, "about", "About Overland Finance")),
   simpleCmd("links", "Official Overland links", (i) => replyInfo(i, "links", "Official links")),
   simpleCmd("team", "Meet the Overland team", (i) => replyInfo(i, "team", "Team")),
