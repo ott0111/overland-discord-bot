@@ -13,7 +13,7 @@ export async function getConfig<T>(key: string, fallback: T): Promise<T> {
 export async function getPointValues() { return getConfig("pointValues", DEFAULT_POINT_VALUES); }
 export async function getInfoContent(key: string): Promise<string> {
   const info = await getConfig<Record<string, string>>("infoContent", {});
-  return info[key] ?? "Content not configured yet. Ask staff to update it in the dashboard.";
+  return info[key] ?? "Content not configured yet. Staff can update it with /setup.";
 }
 export function clearConfigCache(key?: string): void { if (key) cache.delete(key); else cache.clear(); }
 
