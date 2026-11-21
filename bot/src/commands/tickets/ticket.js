@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags } from "discord.js";
+import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { command, reply, requireDiscordPerm, embed, successEmbed } from "../helpers.js";
 import { getGuild, saveStore } from "../../store.js";
 
@@ -64,7 +64,9 @@ async function closeTicket(i) {
   await channel.setName(("closed-" + channel.name).slice(0, 95)).catch(() => {});
   if (g.settings.ticketArchiveCategoryId) await channel.setParent(g.settings.ticketArchiveCategoryId).catch(() => {});
   await saveStore();
+  const feedbackRow = new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId("overland:ticket:feedback:" + n).setLabel(n + " / 5").setStyle(n >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)));
   await channel.send({ embeds: [successEmbed("TICKET ARCHIVED", "This ticket has been closed by " + i.user + ". Staff can still review its history.")] }).catch(() => {});
+  await channel.send({ embeds: [embed("HOW DID WE DO?", "If you opened this ticket, rate your support experience below. Your feedback helps improve Overland support.")], components: [feedbackRow] }).catch(() => {});
   return reply(i, "Ticket archived", "The ticket is now closed and retained for staff review.");
 }
 
