@@ -175,7 +175,7 @@ function welcomeCmd(): Command {
         await i.reply({ ephemeral: true, embeds: [overlandEmbed(title, message)] });
         return;
       }
-      const channel = i.options.getChannel("channel", true) as import("discord.js").TextChannel;
+      const channel = i.options.getChannel("channel", true) as unknown as import("discord.js").TextChannel;
       await i.deferReply({ ephemeral: true });
       try {
         const next = await updateWelcomeSettings(i.user.id, {
