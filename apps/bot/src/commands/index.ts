@@ -1,4 +1,4 @@
-import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder } from "discord.js";
+import { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType, type ChatInputCommandInteraction, type SlashCommandOptionsOnlyBuilder, type SlashCommandSubcommandsOnlyBuilder } from "discord.js";
 import { prisma, audit } from "../lib/db.js";
 import { overlandEmbed, errorEmbed } from "../lib/embeds.js";
 import { getBalance, awardPoints, computeDailyStreak } from "../lib/points.js";
@@ -18,7 +18,7 @@ import { assignRole } from "../modules/roles/service.js";
 import { getSavedLinks, saveLink, removeLink, getWelcomeSettings, updateWelcomeSettings } from "../modules/settings/service.js";
 import { getModerationConfig, updateModerationConfig, lockdownOn, lockdownOff, isLockdownActive, kickMember, banMember, unbanMember, getModerationHistory } from "../modules/moderation/service.js";
 
-export interface Command { data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder; execute: (i: ChatInputCommandInteraction) => Promise<void>; }
+export interface Command { data: SlashCommandBuilder | SlashCommandOptionsOnlyBuilder | SlashCommandSubcommandsOnlyBuilder; execute: (i: ChatInputCommandInteraction) => Promise<void>; }
 
 async function ensureMember(discordId: string, username: string) {
   const user = await prisma.user.upsert({ where: { discordId }, update: { username }, create: { discordId, username } });
@@ -165,7 +165,7 @@ function socialsCmd(): Command {
 function welcomeCmd(): Command {
   return {
     data: new SlashCommandBuilder().setName("welcome").setDescription("Configure the member welcome system")
-      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages")))
+      .addSubcommand((s) => s.setName("setup").setDescription("Set the welcome channel and message").addChannelOption((o) => o.setName("channel").setDescription("Welcome channel").setRequired(true).addChannelTypes(ChannelType.GuildText, ChannelType.GuildAnnouncement)).addStringOption((o) => o.setName("title").setDescription("Embed title; supports {user} and {server}")).addStringOption((o) => o.setName("message").setDescription("Welcome text; supports {user} and {server}")).addBooleanOption((o) => o.setName("enabled").setDescription("Enable welcome messages")))
       .addSubcommand((s) => s.setName("preview").setDescription("Preview the current welcome message")),
     execute: async (i) => {
       const config = await getWelcomeSettings();
@@ -175,8 +175,7 @@ function welcomeCmd(): Command {
         await i.reply({ ephemeral: true, embeds: [overlandEmbed(title, message)] });
         return;
       }
-      const channel = i.options.getChannel("channel", true);
-      if (!channel.isTextBased() || !("send" in channel)) { await i.reply({ ephemeral: true, embeds: [errorEmbed("Choose a text channel.")] }); return; }
+      const channel = i.options.getChannel("channel", true) as import("discord.js").TextChannel;
       await i.deferReply({ ephemeral: true });
       try {
         const next = await updateWelcomeSettings(i.user.id, {
