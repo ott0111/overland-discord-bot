@@ -112,7 +112,7 @@ export async function claimReward(memberId: string, rewardId: string) {
       if (!reward || !reward.active) throw new Error("Reward is not available");
 
       const pending = await tx.rewardClaim.findFirst({
-        where: { rewardId, memberId, status: "PENDING" },
+        where: { rewardId, memberId, status: { in: ["PENDING", "APPROVED"] } },
       });
       if (pending) return { duplicate: true, claim: pending, balance: null };
 
