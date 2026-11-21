@@ -8,23 +8,24 @@
     "packages/*"
   ],
   "scripts": {
-    "dev:bot": "npm --workspace apps/bot run dev",
+    "dev:bot": "npm --prefix bot run dev",
     "dev:dashboard": "npm --workspace apps/dashboard run dev",
     "build": "npm run build:bot && npm run build:dashboard",
-    "test": "npm --workspace apps/bot run test",
+    "test": "npm --prefix bot run check",
     "prisma:validate": "npx prisma validate --schema prisma/schema.prisma",
     "prisma:generate": "npx prisma generate --schema prisma/schema.prisma",
     "prisma:migrate": "npx prisma migrate deploy --schema prisma/schema.prisma",
     "db:seed": "npx tsx prisma/seed.ts",
-    "build:bot": "npm --workspace apps/bot run build",
+    "build:bot": "npm --prefix bot run check",
     "build:dashboard": "npm --workspace apps/dashboard run build",
-    "typecheck": "npm --workspace apps/bot run typecheck && npm --workspace apps/dashboard run typecheck",
+    "typecheck": "npm --workspace apps/dashboard run typecheck",
     "test:all": "npm test"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
-    "prisma": "^5.22.0"
+    "prisma": "^5.22.0",
+    "tsx": "^4.19.0"
   }
 }
