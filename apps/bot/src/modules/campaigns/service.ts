@@ -5,6 +5,7 @@ import { getPointValues } from "../../lib/config.js";
 import { hasPermission } from "../../lib/permissions.js";
 import { checkAndGrant } from "../achievements/service.js";
 import { logger } from "../../lib/logger.js";
+import { checkProgression } from "../roles/service.js";
 
 export interface CreateCampaignInput {
   name: string;
@@ -19,6 +20,7 @@ export interface CreateCampaignInput {
 
 export interface SubmitWorkInput {
   content: string;
+  category?: "community" | "social" | "creative" | "research" | "education";
   linkUrl?: string | null;
   imageUrl?: string | null;
 }
@@ -110,6 +112,10 @@ export async function submitWork(memberId: string, campaignId: string, input: Su
   if (input.content.trim().length > 4000) throw new Error("Submission content is too long (4000 characters max)");
   if (input.linkUrl && !isValidUrl(input.linkUrl)) throw new Error("Submission link is not a valid URL");
   if (input.imageUrl && !isValidUrl(input.imageUrl)) throw new Error("Image link is not a valid URL");
+  const category = input.category ?? "social";
+  if (!["community", "social", "creative", "research", "education"].includes(category)) {
+    throw new Error("Submission category is not supported");
+  }
   const existing = await prisma.campaignSubmission.findFirst({
     where: { campaignId, memberId, status: "PENDING" },
   });
@@ -119,6 +125,7 @@ export async function submitWork(memberId: string, campaignId: string, input: Su
       campaignId,
       memberId,
       content: input.content.trim(),
+      category,
       linkUrl: input.linkUrl ?? null,
       imageUrl: input.imageUrl ?? null,
     },
@@ -161,9 +168,23 @@ export async function reviewSubmission(
     return { submission: rejected, awarded: null };
   }
   const values = await getPointValues();
-  const fallback = (values.social as unknown as Record<string, number>).campaignContribution ?? submission.campaign.pointReward;
-  const amount = pointsOverride ?? submission.campaign.pointReward ?? fallback;
-  if (amount < 0) throw new Error("Award amount must not be negative");
+  const category = submission.category || "social";
+  const socialValues = values.social as unknown as Record<string, number>;
+  const contributionValues = values.contribution as unknown as Record<string, number>;
+  const communityValues = values.community as unknown as Record<string, number>;
+  const defaults: Record<string, number> = {
+    social: socialValues.campaignContribution ?? 20,
+    community: communityValues.approvedContribution ?? 20,
+    creative: contributionValues.graphic ?? 25,
+    research: contributionValues.research ?? 30,
+    education: contributionValues.article ?? 30,
+  };
+  const amount = pointsOverride ?? (submission.campaign.pointReward > 0
+    ? submission.campaign.pointReward
+    : (defaults[category] ?? 20));
+  if (!Number.isSafeInteger(amount) || amount < 0) throw new Error("Award amount must be a non-negative integer");
+  const pointCategory = category === "social" ? "social" : category === "community" ? "community" : "contribution";
+  const transactionSource = category === "social" ? "SOCIAL_SUBMISSION" : "CONTRIBUTION";
   const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
     const transition = await tx.campaignSubmission.updateMany({
       where: { id: submissionId, status: "PENDING" },
@@ -183,9 +204,9 @@ export async function reviewSubmission(
         {
           memberId: submission.memberId,
           currency: "OVERPOINTS",
-          category: "social",
+          category: pointCategory,
           amount,
-          source: "SOCIAL_SUBMISSION",
+          source: transactionSource,
           reason: `Approved submission for campaign ${submission.campaign.name}`,
           actorId: staffDiscordId,
           idempotencyKey: `campaign-${submissionId}`,
@@ -201,8 +222,9 @@ export async function reviewSubmission(
   });
   try {
     await checkAndGrant(submission.memberId);
+    await checkProgression(submission.memberId, staffDiscordId);
   } catch (err) {
-    logger.warn({ err }, "Achievement check after campaign approval failed");
+    logger.warn({ err }, "Achievement or role progression check after campaign approval failed");
   }
   return result;
 }
