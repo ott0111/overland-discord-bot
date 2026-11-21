@@ -5,6 +5,10 @@ on:
   push:
     branches: [main, "upgrade/**"]
 
+concurrency:
+  group: overland-core-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
