@@ -8,14 +8,16 @@ export async function grantRole(memberId: string, roleName: string, actorId: str
   const role = await prisma.role.findUnique({ where: { name: roleName } });
   if (!role) throw new Error("Role not found: " + roleName);
   if (role.isInternal) throw new Error("Internal roles are assigned only through Internal Team management, not this path");
-  if (role.requiresRoleId) {
-    const has = await prisma.memberRole.findUnique({ where: { memberId_roleId: { memberId, roleId: role.requiresRoleId } } });
-    if (!has) throw new Error("Role " + roleName + " requires the prerequisite role first");
-  }
-
   let granted = false;
   try {
     await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${memberId}))`;
+      if (role.requiresRoleId) {
+        const prerequisite = await tx.memberRole.findUnique({
+          where: { memberId_roleId: { memberId, roleId: role.requiresRoleId } },
+        });
+        if (!prerequisite) throw new Error("Role " + roleName + " requires the prerequisite role first");
+      }
       const existing = await tx.memberRole.findUnique({
         where: { memberId_roleId: { memberId, roleId: role.id } },
       });
@@ -50,30 +52,30 @@ export async function revokeRole(memberId: string, roleName: string, actorId: st
   if (!role) throw new Error("Role not found: " + roleName);
   if (role.isInternal) throw new Error("Internal team positions are managed through Internal Team management");
 
-  // Removing a prerequisite also removes any held roles that depend on it,
-  // recursively. For example, removing Citizen also removes Comrade.
-  const allRoles = await prisma.role.findMany({
-    select: { id: true, name: true, requiresRoleId: true, isInternal: true },
-  });
-  const revokedIds = new Set<string>([role.id]);
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const candidate of allRoles) {
-      if (!candidate.isInternal && candidate.requiresRoleId && revokedIds.has(candidate.requiresRoleId) && !revokedIds.has(candidate.id)) {
-        revokedIds.add(candidate.id);
-        changed = true;
+  const removedNames = await prisma.$transaction(async (tx) => {
+    // Serialize all role-ledger changes for this member so a prerequisite
+    // cannot be granted or removed while the dependency cascade is running.
+    await tx.$queryRaw\`SELECT pg_advisory_xact_lock(hashtext(\${memberId}))\`;
+
+    const allRoles = await tx.role.findMany({
+      select: { id: true, name: true, requiresRoleId: true, isInternal: true },
+    });
+    const revokedIds = new Set<string>([role.id]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (const candidate of allRoles) {
+        if (!candidate.isInternal && candidate.requiresRoleId && revokedIds.has(candidate.requiresRoleId) && !revokedIds.has(candidate.id)) {
+          revokedIds.add(candidate.id);
+          changed = true;
+        }
       }
     }
-  }
 
-  const held = await prisma.memberRole.findMany({
-    where: { memberId, roleId: { in: [...revokedIds] } },
-    include: { role: true },
-  });
-  if (held.length === 0) return [];
-
-  const removedNames = await prisma.$transaction(async (tx) => {
+    const held = await tx.memberRole.findMany({
+      where: { memberId, roleId: { in: [...revokedIds] } },
+      include: { role: true },
+    });
     const removed: string[] = [];
     for (const entry of held) {
       const deleted = await tx.memberRole.deleteMany({
