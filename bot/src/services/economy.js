@@ -37,9 +37,17 @@ export async function dailyCheckin(guildId, user) {
   const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
   member.streak=member.lastCheckin===yesterday?member.streak+1:1;
   member.lastCheckin=today;
-  const base=await award(guildId,user,{amount:guild.settings.pointValues.daily,currency:"OVERPOINTS",category:"community",source:"DAILY_CHECKIN",idempotencyKey:"daily:"+member.id+":"+today});
-  const bonus=Math.min(member.streak*2,20);
-  await award(guildId,user,{amount:bonus,currency:"OVERCREDITS",category:"streak",source:"STREAK_BONUS",idempotencyKey:"streak:"+member.id+":"+today});
-  return { member, streak:member.streak, points:guild.settings.pointValues.daily, bonus, duplicate:base.duplicate };
+  let points=0,bonus=0;
+  try {
+    await award(guildId,user,{amount:guild.settings.pointValues.daily,currency:"OVERPOINTS",category:"community",source:"DAILY_CHECKIN",idempotencyKey:"daily:"+member.id+":"+today});
+    points=guild.settings.pointValues.daily;
+  } catch(error) { if(!/earning limit/i.test(error.message)) throw error; }
+  const intendedBonus=Math.min(member.streak*2,20);
+  try {
+    await award(guildId,user,{amount:intendedBonus,currency:"OVERCREDITS",category:"streak",source:"STREAK_BONUS",idempotencyKey:"streak:"+member.id+":"+today});
+    bonus=intendedBonus;
+  } catch(error) { if(!/earning limit/i.test(error.message)) throw error; }
+  await saveStore();
+  return {member,streak:member.streak,points,bonus};
 }
 export async function getTransactions(guildId, userId, limit=10) { return getGuild(guildId).transactions.filter(t=>t.memberId===userId).slice(0,limit); }

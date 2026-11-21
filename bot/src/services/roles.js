@@ -10,6 +10,7 @@ export async function grantRole(guildId, user, roleName, actorId, reason = "Role
   if (INTERNAL.has(role)) throw new Error("Internal roles are managed through the private team system, not public role commands.");
   const guild = getGuild(guildId), member = getMember(guildId, user);
   if (member.roles.includes(role)) return false;
+  if (role === "Comrade" && !member.roles.includes("Citizen")) throw new Error("Comrade requires Citizen verification first.");
   if (role === "Comrade" && !member.xFollowVerified) throw new Error("Comrade requires verified X follow status.");
   if (role === "Citizen" && !member.verifiedAt) throw new Error("Citizen is granted by completing verification.");
   member.roles.push(role);
