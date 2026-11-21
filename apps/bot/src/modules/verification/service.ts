@@ -66,14 +66,20 @@ export interface VerificationConfig {
   minAccountAgeDays: number;
   requireCaptcha: boolean;
   requireAvatar: boolean;
+  antiRaidWindowMinutes: number;
+  antiRaidThreshold: number;
 }
 
 export async function getVerificationConfig(): Promise<VerificationConfig> {
-  return getConfig<VerificationConfig>("verification", {
+  const defaults: VerificationConfig = {
     minAccountAgeDays: 7,
     requireCaptcha: true,
     requireAvatar: false,
-  });
+    antiRaidWindowMinutes: 10,
+    antiRaidThreshold: 10,
+  };
+  const stored = await getConfig<Partial<VerificationConfig>>("verification", {});
+  return { ...defaults, ...stored };
 }
 
 /**
@@ -84,7 +90,7 @@ export async function getVerificationConfig(): Promise<VerificationConfig> {
 export async function checkAntiRaid(guildId: string, windowMinutes = 10, threshold = 10): Promise<{ raiding: boolean; recentJoins: number }> {
   const since = new Date(Date.now() - windowMinutes * 60 * 1000);
   const recentJoins = await prisma.discordMember.count({
-    where: { guildId, createdAt: { gte: since } },
+    where: { guildId, joinedAt: { gte: since } },
   });
   return { raiding: recentJoins >= threshold, recentJoins };
 }
@@ -106,7 +112,7 @@ export async function startVerification(memberId: string, accountAgeDays: number
   }
   let raid: { raiding: boolean; recentJoins: number } | null = null;
   if (guildId) {
-    raid = await checkAntiRaid(guildId);
+    raid = await checkAntiRaid(guildId, config.antiRaidWindowMinutes, config.antiRaidThreshold);
     if (raid.raiding) reasons.push("Anti-raid protection is active: verification is paused for staff review");
   }
   if (reasons.length > 0) return { passed: false, reasons, challenge: null, raid };
