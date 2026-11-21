@@ -63,7 +63,7 @@ Permission column meanings:
 | `/security configure` | optional thresholds and filters | Staff, `moderation.action` | Configure spam threshold, detection window, mention limit, invite filter and suspicious-link action. |
 | `/security lockdown` | `action` (enable/disable) | Staff, `moderation.action` | Lock down text channels and restore their previous @everyone send permissions when disabled. |
 | `/ticket-setup` | `staff_role`, `category` (optional) | Staff, `config.manage` | Configure the staff role and category for private tickets. |
-| `/verification-setup` | minimum age, CAPTCHA, avatar (optional) | Staff, `config.manage` | Configure verification requirements. |
+| `/verification-setup` | minimum age, CAPTCHA, avatar, anti-raid window and threshold (optional) | Staff, `config.manage` | Configure verification and anti-raid requirements. |
 | `/x-setup` | username, channel, enabled, poll interval, filters | Staff, `x.manage` | Configure X timeline announcements. Requires `X_BEARER_TOKEN`. |
 
 ## Info commands
