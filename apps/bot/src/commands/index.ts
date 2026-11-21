@@ -182,7 +182,7 @@ function welcomeCmd(): Command {
           channelId: channel.id,
           title: i.options.getString("title") ?? config.title,
           message: i.options.getString("message") ?? config.message,
-          enabled: i.options.getBoolean("enabled") ?? true,
+          enabled: i.options.getBoolean("enabled") ?? config.enabled,
         });
         await i.editReply({ embeds: [overlandEmbed("Welcome system configured", "Channel: <#" + next.channelId + ">\nEnabled: " + (next.enabled ? "Yes" : "No") + "\nUse /welcome preview to check the message.")] });
       } catch (err) { await i.editReply({ embeds: [errorEmbed(err instanceof Error ? err.message : "Welcome setup failed.")] }); }
