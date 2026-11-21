@@ -122,10 +122,24 @@ client.on(Events.GuildMemberAdd,async member=>{
   const cfg=g.settings;
   if(cfg.autoRoleId){const role=await member.guild.roles.fetch(cfg.autoRoleId).catch(()=>null);if(role)await member.roles.add(role).catch(e=>console.error("[AutoRole]",e.message));}
   if(cfg.welcomeEnabled&&cfg.welcomeChannelId){const ch=await member.guild.channels.fetch(cfg.welcomeChannelId).catch(()=>null);if(ch?.isTextBased())await ch.send({embeds:[embed("Welcome to Overland",cfg.welcomeMessage.replaceAll("{user}",member.toString()).replaceAll("{server}",member.guild.name))]});}
+  if(cfg.welcomeDm)await member.send({embeds:[embed("Welcome to Overland","Welcome to "+member.guild.name+". Please review the rules and complete verification to get started.")] }).catch(()=>{});
   await saveStore();
  }catch(e){console.error("[GuildMemberAdd]",e);}
 });
 client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;await saveStore();});
+client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
+ try{
+  const g=getGuild(newMember.guild.id),member=getMember(newMember.guild.id,newMember.user);
+  for(const [name,roleId] of Object.entries(g.settings.roleIds)){
+   const expected=member.roles.includes(name),actual=newMember.roles.cache.has(roleId);
+   if(expected!==actual){
+    await syncDiscordRole(g,newMember,name,expected).catch(e=>console.error("[RoleSync] "+name+":",e.message));
+    g.roleHistory.unshift({id:crypto.randomUUID(),memberId:member.id,role:name,action:expected?"RECONCILED_ADD":"RECONCILED_REMOVE",actorId:"SYSTEM",reason:"Discord role state reconciled with Overland role ledger",at:new Date().toISOString()});
+   }
+  }
+  await saveStore();
+ }catch(e){console.error("[RoleSync]",e);}
+});
 client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(g.stats.messages%25===0)await saveStore();});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
