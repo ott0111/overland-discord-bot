@@ -23,45 +23,65 @@ const CATEGORY_FIELD: Record<string, string> = {
 };
 
 async function awardWithTx(tx: TxClient, input: AwardInput) {
-  if (input.amount === 0) throw new Error("Amount must not be zero");
-  const existing = (await (tx.pointTransaction.findUnique as (a: unknown) => Promise<{ id: string } | null>)({
-    where: { idempotencyKey: input.idempotencyKey },
-  })) as { id: string } | null;
-  if (existing) return { duplicate: true, transaction: existing };
-  type Balance = Record<string, number> & { memberId: string };
-  let balance = (await (tx.pointBalance.findUnique as (a: unknown) => Promise<Balance | null>)({
-    where: { memberId: input.memberId },
-  })) as Balance | null;
-  if (!balance) {
-    balance = (await (tx.pointBalance.create as unknown as (a: unknown) => Promise<Balance>)({
-      data: { memberId: input.memberId },
-    })) as Balance;
+  if (!Number.isSafeInteger(input.amount) || input.amount === 0) {
+    throw new Error("Amount must be a non-zero safe integer");
   }
-  const field = input.currency === "OVERPOINTS" ? "overpoints" : "overcredits";
-  const after = (balance[field] as number) + input.amount;
-  if (after < 0) throw new Error("Insufficient balance: award would make balance negative");
-  const catField = CATEGORY_FIELD[input.category];
-  const data: Record<string, number> = { [field]: after };
-  if (catField && input.amount > 0) data[catField] = (balance[catField] as number) + input.amount;
-  const updated = (await (tx.pointBalance.update as unknown as (a: unknown) => Promise<Balance>)({
+  if (!input.idempotencyKey?.trim()) throw new Error("An idempotency key is required");
+  if (input.currency === "OVERPOINTS" && input.amount < 0 && input.source !== "ADMIN_ADJUSTMENT") {
+    throw new Error("Overpoints cannot be spent");
+  }
+
+  const existing = await tx.pointTransaction.findUnique({
+    where: { idempotencyKey: input.idempotencyKey },
+  });
+  if (existing) return { duplicate: true, transaction: existing };
+
+  await tx.pointBalance.upsert({
     where: { memberId: input.memberId },
-    data,
-  })) as Balance;
-  const txn = await (tx as unknown as {
-    pointTransaction: { create: (args: unknown) => Promise<unknown> };
-  }).pointTransaction.create({
+    update: {},
+    create: { memberId: input.memberId },
+  });
+
+  const field = input.currency === "OVERPOINTS" ? "overpoints" : "overcredits";
+  const data: Record<string, unknown> = {
+    [field]: input.amount > 0
+      ? { increment: input.amount }
+      : { decrement: Math.abs(input.amount) },
+  };
+
+  const categoryField = CATEGORY_FIELD[input.category];
+  if (categoryField && input.amount > 0) {
+    data[categoryField] = { increment: input.amount };
+  }
+
+  // The conditional update is atomic in PostgreSQL. Concurrent debits
+  // cannot both spend the same balance and the database CHECK is a final guard.
+  const where: Record<string, unknown> = { memberId: input.memberId };
+  if (input.amount < 0) where[field] = { gte: Math.abs(input.amount) };
+
+  const changed = await tx.pointBalance.updateMany({ where, data: data as never });
+  if (changed.count !== 1) {
+    throw new Error("Insufficient balance: transaction would make balance negative");
+  }
+
+  const updated = await tx.pointBalance.findUniqueOrThrow({
+    where: { memberId: input.memberId },
+  });
+
+  const txn = await tx.pointTransaction.create({
     data: {
       memberId: input.memberId,
       currency: input.currency,
       category: input.category,
       amount: input.amount,
-      balanceAfter: after,
+      balanceAfter: updated[field],
       source: input.source as never,
       idempotencyKey: input.idempotencyKey,
       reason: input.reason,
       actorId: input.actorId,
     },
   });
+
   return { duplicate: false, transaction: txn, balance: updated };
 }
 
