@@ -25,6 +25,11 @@ export async function listPointTransactions(guildId, { memberId, category } = {}
     [guildId],
   );
   const settings = Object.fromEntries(configs.map((row) => [row.configKey, row.configValue]));
+  const [guildRows] = await pool.execute("SELECT settings FROM guilds WHERE guild_id = ? LIMIT 1", [guildId]);
+  let guildSettings = guildRows[0]?.settings || {};
+  if (typeof guildSettings === "string") {
+    try { guildSettings = JSON.parse(guildSettings); } catch { guildSettings = {}; }
+  }
   return {
     transactions: transactions.map((row) => ({
       id: row.id, guildId: row.guildId, memberId: row.memberId, currency: row.currency,
@@ -32,8 +37,8 @@ export async function listPointTransactions(guildId, { memberId, category } = {}
       idempotencyKey: row.idempotencyKey, reason: row.reason, actorId: row.actorId, createdAt: row.createdAt,
       member: { user: { username: row.memberUsername, discordId: row.memberDiscordId } },
     })),
-    pointValues: settings.pointValues || {},
-    dailyLimits: settings.dailyLimits || {},
+    pointValues: settings.pointValues || guildSettings.pointValues || {},
+    dailyLimits: settings.dailyLimits || guildSettings.dailyLimits || {},
   };
 }
 
