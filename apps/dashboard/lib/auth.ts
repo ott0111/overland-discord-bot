@@ -1,7 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
-import { getPrisma } from "./prisma";
-import { coreApiGet, configuredGuildId } from "./core-api";
+import { coreApiGet, coreApiPost, configuredGuildId } from "./core-api";
 
 /** Discord OAuth2 for the dashboard. Exchange code for a token, fetch the user, then
  *  check InternalTeamMember + PermissionGroup in the database for RBAC. No session
@@ -101,13 +100,32 @@ export async function requireStaff(req: Request, permission?: string): Promise<A
   if (!session) {
     return { session: null, error: NextResponse.json({ error: "Unauthorized: sign in with Discord" }, { status: 401 }) };
   }
-  if (!session.group) {
-    return { session, error: NextResponse.json({ error: "Forbidden: staff access only" }, { status: 403 }) };
+
+  const guildId = configuredGuildId();
+  if (!guildId) {
+    return { session, error: NextResponse.json({ error: "Core API guild is not configured" }, { status: 503 }) };
   }
-  if (permission && !requirePermission(session, permission)) {
-    return { session, error: NextResponse.json({ error: "Forbidden: missing permission " + permission }, { status: 403 }) };
+
+  try {
+    const staff = await coreApiGet<{ discordId: string; username: string; group: string | null; permissions: string[] }>(
+      "/v1/guilds/" + encodeURIComponent(guildId) + "/staff/" + encodeURIComponent(session.discordId),
+    );
+    if (!staff.group) {
+      return { session: { ...session, group: null, permissions: [] }, error: NextResponse.json({ error: "Forbidden: staff access only" }, { status: 403 }) };
+    }
+    const currentSession: DashboardSession = {
+      ...session,
+      username: staff.username || session.username,
+      group: staff.group,
+      permissions: Array.isArray(staff.permissions) ? staff.permissions : [],
+    };
+    if (permission && !requirePermission(currentSession, permission)) {
+      return { session: currentSession, error: NextResponse.json({ error: "Forbidden: missing permission " + permission }, { status: 403 }) };
+    }
+    return { session: currentSession, error: null };
+  } catch {
+    return { session, error: NextResponse.json({ error: "Core API unavailable. Staff permissions could not be verified." }, { status: 503 }) };
   }
-  return { session, error: null };
 }
 
 /** Alias kept for readability in routes that only need any staff member. */
@@ -177,15 +195,16 @@ export async function writeAudit(
   entityId?: string,
   details?: Record<string, unknown>,
 ): Promise<void> {
+  if (!actorId) return;
+  const guildId = configuredGuildId();
+  if (!guildId) return;
   try {
-    await getPrisma().auditLog.create({
-      data: {
-        actorId: actorId ?? null,
-        action,
-        entityType: entityType ?? null,
-        entityId: entityId ?? null,
-        details: (details ?? {}) as never,
-      },
+    await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/audit", {
+      actorId,
+      action,
+      entityType: entityType ?? null,
+      entityId: entityId ?? null,
+      details: details ?? {},
     });
   } catch {
     // Audit failure must not fail the request it records.
