@@ -9,6 +9,7 @@ import { listMembers, getMemberDetails } from "./db/repositories/members.js";
 import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db/repositories/economy.js";
 import { listTickets, updateTicket, listRewards, createReward, updateReward, reviewRewardClaim } from "./db/repositories/tickets-rewards.js";
 import { listRoles, createRole, updateRole } from "./db/repositories/roles.js";
+import { listAchievements, createAchievement } from "./db/repositories/achievements.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -259,6 +260,29 @@ export function startCoreApi() {
       }
     }
 
+
+    const achievementsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/achievements$/);
+    if (achievementsMatch) {
+      const guildId = achievementsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Achievement management requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "achievements.manage");
+          return send(res, 200, await listAchievements(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "achievements.manage");
+          if (!String(input.name || "").trim() || !String(input.description || "").trim()) return send(res, 400, { error: "name and description are required" });
+          const achievement = await createAchievement(guildId, input);
+          await appendAudit(guildId, actor.discordId, "achievement.create", achievement.id, { key: achievement.key }, "Achievement");
+          return send(res, 201, achievement);
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Achievement service unavailable" });
+      }
+    }
 
     const rolesMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/roles$/);
     if (rolesMatch) {
