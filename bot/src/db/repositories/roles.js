@@ -309,10 +309,17 @@ export async function saveVerificationChallenge(guildId, user, challenge) {
   const connection = await getPool().getConnection();
   try {
     const member = await resolveRoleMember(connection, guildId, user);
-    await connection.execute(
-      "UPDATE discord_members SET profile = JSON_SET(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge', CAST(? AS JSON)) WHERE guild_id = ? AND id = ?",
-      [JSON.stringify(challenge), guildId, member.id],
-    );
+    if (challenge === null) {
+      await connection.execute(
+        "UPDATE discord_members SET profile = JSON_REMOVE(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge') WHERE guild_id = ? AND id = ?",
+        [guildId, member.id],
+      );
+    } else {
+      await connection.execute(
+        "UPDATE discord_members SET profile = JSON_SET(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge', CAST(? AS JSON)) WHERE guild_id = ? AND id = ?",
+        [JSON.stringify(challenge), guildId, member.id],
+      );
+    }
     return challenge;
   } finally {
     connection.release();
