@@ -66,8 +66,9 @@ export async function updateReward(guildId,id,input,actorId){
  }
  if(!fields.length)throw Object.assign(new Error("No reward changes supplied"),{status:400});
  const pool=getPool();
- const [result]=await pool.execute("UPDATE rewards SET "+fields.join(", ")+" WHERE guild_id=? AND id=?",[...values,guildId,id]);
- if(!result.affectedRows)throw Object.assign(new Error("Reward not found"),{status:404});
+ const [existing]=await pool.execute("SELECT id FROM rewards WHERE guild_id=? AND id=? LIMIT 1",[guildId,id]);
+ if(!existing.length)throw Object.assign(new Error("Reward not found"),{status:404});
+ await pool.execute("UPDATE rewards SET "+fields.join(", ")+" WHERE guild_id=? AND id=?",[...values,guildId,id]);
  await pool.execute("INSERT INTO audit_logs (id,guild_id,actor_id,action,entity_type,entity_id,details) VALUES (?,?,?,'reward.update','Reward',?,?)",[crypto.randomUUID(),guildId,actorId||null,id,JSON.stringify(input)]);
  const [rows]=await pool.execute("SELECT id,name,description,image_url AS imageUrl,cost_overcredits AS costOvercredits,stock,eligibility,active,created_at AS createdAt FROM rewards WHERE guild_id=? AND id=?",[guildId,id]);
  return rows[0];
