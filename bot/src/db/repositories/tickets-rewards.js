@@ -11,8 +11,8 @@ async function resolveMember(conn,guildId,discordId){
  if(!rows.length)throw Object.assign(new Error("Unable to resolve guild member"),{status:404});
  return rows[0];
 }
-function mapTicket(r){return {id:r.id,number:r.ticketNumber,category:r.category,channelId:r.channelId,status:r.status,claimedBy:r.claimedBy,rating:r.rating,firstResponseAt:r.firstResponseAt,closedAt:r.closedAt,createdAt:r.createdAt,updatedAt:r.updatedAt,member:{id:r.memberId,user:{discordId:r.discordId,username:r.username}}};}
-const TICKET_SELECT="SELECT t.id,t.ticket_number AS ticketNumber,t.category,t.channel_id AS channelId,t.member_id AS memberId,t.status,t.claimed_by AS claimedBy,t.rating,t.first_response_at AS firstResponseAt,t.closed_at AS closedAt,t.created_at AS createdAt,t.updated_at AS updatedAt,u.discord_id AS discordId,u.username FROM tickets t JOIN discord_members dm ON dm.id=t.member_id JOIN users u ON u.id=dm.user_id";
+function mapTicket(r){return {id:r.id,number:r.ticketNumber,category:r.category,channelId:r.channelId,status:r.status,claimedBy:r.claimedBy,rating:r.rating,firstResponseAt:r.firstResponseAt,closedAt:r.closedAt,createdAt:r.createdAt,updatedAt:r.updatedAt,member:{id:r.memberId,user:{discordId:r.discordId,username:r.username}},_count:{messages:Number(r.messageCount||0)}};}
+const TICKET_SELECT="SELECT t.id,t.ticket_number AS ticketNumber,t.category,t.channel_id AS channelId,t.member_id AS memberId,t.status,t.claimed_by AS claimedBy,t.rating,t.first_response_at AS firstResponseAt,t.closed_at AS closedAt,t.created_at AS createdAt,t.updated_at AS updatedAt,u.discord_id AS discordId,u.username,(SELECT COUNT(*) FROM ticket_messages tm WHERE tm.ticket_id=t.id) AS messageCount FROM tickets t JOIN discord_members dm ON dm.id=t.member_id JOIN users u ON u.id=dm.user_id";
 export async function listTickets(guildId,{status,id}={}){
  const pool=getPool();
  if(id){
@@ -50,7 +50,7 @@ export async function listRewards(guildId){
  const pool=getPool();
  const [rewards]=await pool.execute("SELECT r.id,r.name,r.description,r.image_url AS imageUrl,r.cost_overcredits AS costOvercredits,r.stock,r.eligibility,r.active,r.created_at AS createdAt,r.updated_at AS updatedAt,(SELECT COUNT(*) FROM reward_claims rc WHERE rc.reward_id=r.id) AS claimsCount FROM rewards r WHERE r.guild_id=? ORDER BY r.created_at DESC",[guildId]);
  const [claims]=await pool.execute("SELECT rc.id,rc.reward_id AS rewardId,rc.member_id AS memberId,rc.status,rc.cost_overcredits AS costOvercredits,rc.reviewed_by AS reviewedBy,rc.created_at AS createdAt,r.name AS rewardName,u.username,u.discord_id AS discordId FROM reward_claims rc JOIN rewards r ON r.id=rc.reward_id JOIN discord_members dm ON dm.id=rc.member_id JOIN users u ON u.id=dm.user_id WHERE rc.guild_id=? ORDER BY rc.created_at DESC LIMIT 100",[guildId]);
- return {rewards:rewards.map(r=>({...r,claimsCount:Number(r.claimsCount),active:Boolean(r.active)})),claims:claims.map(c=>({...c,reward:{id:c.rewardId,name:c.rewardName},member:{id:c.memberId,user:{username:c.username,discordId:c.discordId}}}))};
+ return {rewards:rewards.map(r=>({...r,_count:{claims:Number(r.claimsCount)},active:Boolean(r.active)})),claims:claims.map(c=>({...c,reward:{id:c.rewardId,name:c.rewardName},member:{id:c.memberId,user:{username:c.username,discordId:c.discordId}}}))};
 }
 export async function createReward(guildId,input,actorId){
  const id=crypto.randomUUID(),pool=getPool();
