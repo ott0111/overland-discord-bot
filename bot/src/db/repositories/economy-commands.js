@@ -34,10 +34,11 @@ async function settings(connection,guildId) {
 }
 export async function awardNormalized(guildId,user,{currency="OVERPOINTS",amount,category="community",source="STAFF",reason="",actorId="SYSTEM",idempotencyKey}) {
   if(!["OVERPOINTS","OVERCREDITS"].includes(currency)||!Number.isSafeInteger(amount)||amount<=0) throw new Error("Invalid award.");
-  const pool=getPool(), conn=await pool.getConnection(), key=String(idempotencyKey||crypto.randomUUID());
+  const pool=getPool(), conn=await pool.getConnection();
   try {
     await conn.beginTransaction();
     const member=await resolveMember(conn,guildId,user);
+    const key=String(idempotencyKey||[source,member.id,category,new Date().toISOString().slice(0,10),amount].join(":"));
     const [existing]=await conn.execute("SELECT id FROM point_transactions WHERE idempotency_key=? LIMIT 1",[key]);
     if(existing.length){await conn.commit();return {duplicate:true,member};}
     const config=await settings(conn,guildId), limits=config.dailyLimits||{};
