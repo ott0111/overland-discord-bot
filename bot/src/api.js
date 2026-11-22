@@ -258,6 +258,65 @@ export function startCoreApi() {
       }
     }
 
+
+    const ticketsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/tickets$/);
+    if (ticketsMatch) {
+      const guildId = ticketsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Ticket records require MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "tickets.view");
+          const id = url.searchParams.get("id") || undefined;
+          const status = url.searchParams.get("status") || undefined;
+          if (status && !["OPEN","CLAIMED","CLOSED","ARCHIVED"].includes(status)) return send(res, 400, { error: "Invalid ticket status" });
+          const result = await listTickets(guildId, { id, status });
+          if (id && !result) return send(res, 404, { error: "Ticket not found" });
+          return send(res, 200, result);
+        }
+        if (req.method === "PATCH") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "tickets.manage");
+          if (!input.id || !input.action) return send(res, 400, { error: "id and action are required" });
+          return send(res, 200, await updateTicket(guildId, String(input.id), String(input.action), { actorId: actor.discordId, rating: input.rating }));
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Ticket service unavailable" }); }
+    }
+
+    const rewardsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/rewards$/);
+    if (rewardsMatch) {
+      const guildId = rewardsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Reward records require MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "rewards.view");
+          return send(res, 200, await listRewards(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "rewards.manage");
+          if (!String(input.name || "").trim() || !String(input.description || "").trim() || !Number.isSafeInteger(input.costOvercredits) || input.costOvercredits < 0 || (input.stock !== undefined && input.stock !== null && (!Number.isSafeInteger(input.stock) || input.stock < 0))) return send(res, 400, { error: "Provide a name, description, non-negative integer cost and valid stock" });
+          return send(res, 201, await createReward(guildId, input, actor.discordId));
+        }
+        if (req.method === "PATCH") {
+          const input = await readJsonBody(req);
+          if (input.claimId && input.status) {
+            const actor = await requireTeamActor(guildId, input.actorId, "rewards.review");
+            if (!["APPROVED","REJECTED","FULFILLED"].includes(input.status)) return send(res, 400, { error: "Invalid claim status" });
+            return send(res, 200, await reviewRewardClaim(guildId, String(input.claimId), input.status, actor.discordId));
+          }
+          if (input.rewardId) {
+            const actor = await requireTeamActor(guildId, input.actorId, "rewards.manage");
+            if (input.costOvercredits !== undefined && (!Number.isSafeInteger(input.costOvercredits) || input.costOvercredits < 0)) return send(res, 400, { error: "Reward cost must be a non-negative integer" });
+            if (input.stock !== undefined && input.stock !== null && (!Number.isSafeInteger(input.stock) || input.stock < 0)) return send(res, 400, { error: "Stock must be a non-negative integer or null" });
+            return send(res, 200, await updateReward(guildId, String(input.rewardId), input, actor.discordId));
+          }
+          return send(res, 400, { error: "claimId/status or rewardId is required" });
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Reward service unavailable" }); }
+    }
+
     const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
     if (auditMatch && req.method === "POST") {
       let body = "";
