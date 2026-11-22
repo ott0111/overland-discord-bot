@@ -202,5 +202,5 @@ async function shutdown(signal){console.log("[Overland] "+signal+" received. Sav
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
 await ownerBootstrap();
-startCoreApi();
+startCoreApi(client);
 await client.login(token);
