@@ -6,6 +6,7 @@ import { databaseHealth } from "./db/health.js";
 import { findStaffMember } from "./db/repositories/staff.js";
 import { listTeam, addTeamMember, updateTeamMember, removeTeamMember } from "./db/repositories/team.js";
 import { listMembers, getMemberDetails } from "./db/repositories/members.js";
+import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db/repositories/economy.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -149,6 +150,48 @@ export function startCoreApi() {
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
 
+
+
+    const pointsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/points$/);
+    if (pointsMatch) {
+      const guildId = pointsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Economy records require MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "economy.view");
+          const memberId = url.searchParams.get("memberId") || undefined;
+          const category = url.searchParams.get("category") || undefined;
+          return send(res, 200, await listPointTransactions(guildId, { memberId, category }));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "economy.adjust");
+          if (!input.memberRef || typeof input.amount !== "number" || !Number.isSafeInteger(input.amount) || input.amount === 0 || Math.abs(input.amount) > 1000000000) {
+            return send(res, 400, { error: "memberRef and a non-zero whole-number amount are required" });
+          }
+          if (!["OVERPOINTS", "OVERCREDITS"].includes(input.currency)) return send(res, 400, { error: "currency must be OVERPOINTS or OVERCREDITS" });
+          const balance = await adjustMemberBalance(guildId, String(input.memberRef), input.currency, input.amount, String(input.reason || "").slice(0, 1000), actor.discordId);
+          return send(res, 200, { ok: true, balance });
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Economy service unavailable" });
+      }
+    }
+
+    const leaderboardMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/leaderboards$/);
+    if (leaderboardMatch) {
+      if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Leaderboard records require MySQL storage to be enabled." });
+      try {
+        await requireTeamActor(leaderboardMatch[1], url.searchParams.get("actorId"), "analytics.view");
+        const category = String(url.searchParams.get("category") || "overall").slice(0, 40);
+        const period = String(url.searchParams.get("period") || "LIFETIME").toUpperCase();
+        return send(res, 200, await getLeaderboard(leaderboardMatch[1], category, ["LIFETIME", "WEEKLY", "MONTHLY"].includes(period) ? period : "LIFETIME"));
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Leaderboard service unavailable" });
+      }
+    }
 
     const membersMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/members$/);
     const memberMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/members\/([^/]+)$/);
