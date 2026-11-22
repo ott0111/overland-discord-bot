@@ -1,6 +1,6 @@
 import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { command, reply, requireDiscordPerm, embed, successEmbed } from "../helpers.js";
-import { getGuild, saveStore } from "../../store.js";
+import { getGuild, saveStore } from "../../store.js";\nimport { createTicketRecord, getTicketByChannel, updateTicket } from "../../db/repositories/tickets-rewards.js";
 
 const categories = [
   { name: "Support", value: "support" },
@@ -73,7 +73,7 @@ async function closeTicket(i) {
 async function claimTicket(i) {
   requireDiscordPerm(i, PermissionFlagsBits.ManageChannels);
   if (!isTicket(i.channel) || i.channel.topic.startsWith("overland-ticket-closed:")) throw new Error("This is not an open ticket.");
-  const g = getGuild(i.guildId), record = ticketRecord(g, i.channelId);
+  const g = getGuild(i.guildId), record = process.env.OVERLAND_STORAGE === "mysql" ? await getTicketByChannel(i.guildId, i.channelId) : ticketRecord(g, i.channelId);
   if (!record) throw new Error("Ticket record not found. Ask an administrator to review the ticket setup.");
   if (record.claimedBy && record.claimedBy !== i.user.id) throw new Error("This ticket is already claimed by <@" + record.claimedBy + ">.");
   record.claimedBy = i.user.id; record.claimedAt = new Date().toISOString();
@@ -141,7 +141,7 @@ export default command(
     if (sub === "transcript") return transcript(i);
     if (sub === "status") {
       if (!isTicket(i.channel)) throw new Error("Use this command inside an Overland ticket.");
-      const record = ticketRecord(getGuild(i.guildId), i.channelId);
+      const record = process.env.OVERLAND_STORAGE === "mysql" ? await getTicketByChannel(i.guildId, i.channelId) : ticketRecord(getGuild(i.guildId), i.channelId);
       if (!record) throw new Error("Ticket record not found.");
       return reply(i, "Ticket status  /  " + record.id,
         "**Status:** " + record.status + "\n**Category:** " + record.category + "\n**Opened by:** <@" + record.ownerId + ">\n**Claimed by:** " +
