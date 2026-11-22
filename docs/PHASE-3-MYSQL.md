@@ -94,3 +94,15 @@ When `OVERLAND_STORAGE=mysql`, bot economy operations now use normalized MySQL r
 - JSON mode remains available as the compatibility path until the production cutover is approved.
 
 This is the economy-command cutover, not a full bot-data cutover. Role progression and achievement award workflows still need their own normalized implementation. Validate the MySQL mode against a disposable database before enabling it on CoalByte.
+
+## Phase 3.5: Tickets and rewards
+
+- Normalized ticket and reward repositories now support ticket listing/detail, claim/close/reopen/archive/rating actions, reward creation/updates, reward claims, approvals, rejection refunds, and fulfillment.
+- Core API exposes the ticket and reward operations with per-request staff permission checks.
+- Dashboard ticket and reward routes now call Core API instead of querying Prisma directly.
+- Bot ticket creation, claim, and close operations use normalized MySQL records in MySQL mode.
+- Bot reward browsing, creation, claiming, review, rejection/refund, and fulfillment use normalized MySQL records in MySQL mode.
+- Migration 0004 seeds ticket and reward viewing permissions.
+- The JSON importer now includes existing reward catalog entries, reward claims, and ticket records, while preserving the original JSON file and using insert-if-absent semantics.
+
+This cutover still requires integration tests against a disposable MySQL database. Ticket transcript messages and the complete historical ticket message archive are not imported by this pass. Do not retire PostgreSQL or enable the production MySQL cutover until all remaining dashboard routes and their data models have been migrated and reconciled.
