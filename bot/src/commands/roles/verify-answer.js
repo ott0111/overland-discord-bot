@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply } from "../helpers.js";
+import { command, reply, syncMemberProgression } from "../helpers.js";
 import { getMember, saveStore, getGuild } from "../../store.js";
-import { grantRole, syncDiscordRole, checkProgression } from "../../services/roles.js";
+import { grantRole, syncDiscordRole } from "../../services/roles.js";
 import { verifyReferral } from "../../services/referrals.js";
 import { getMemberVerification, saveVerificationChallenge, completeMemberVerification } from "../../db/repositories/roles.js";
 
@@ -41,8 +41,7 @@ export default command(
     const discordMember = await i.guild.members.fetch(i.user.id);
     await syncDiscordRole(getGuild(i.guildId), discordMember, "Citizen", true).catch(() => {});
     await verifyReferral(i.guildId, i.user.id);
-    const earned = await checkProgression(i.guildId, i.user);
-    for (const role of earned) await syncDiscordRole(getGuild(i.guildId), discordMember, role, true).catch(() => {});
+    await syncMemberProgression(i, i.user);
     await reply(i, "Verification complete", "You are now verified as a Citizen. Welcome to Overland.");
   },
 );
