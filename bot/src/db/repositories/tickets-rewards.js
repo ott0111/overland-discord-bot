@@ -11,7 +11,7 @@ async function resolveMember(conn,guildId,discordId){
  if(!rows.length)throw Object.assign(new Error("Unable to resolve guild member"),{status:404});
  return rows[0];
 }
-function mapTicket(r){return {id:r.id,number:r.ticketNumber,category:r.category,channelId:r.channelId,status:r.status,claimedBy:r.claimedBy,rating:r.rating,firstResponseAt:r.firstResponseAt,closedAt:r.closedAt,createdAt:r.createdAt,updatedAt:r.updatedAt,member:{id:r.memberId,user:{discordId:r.discordId,username:r.username}},_count:{messages:Number(r.messageCount||0)}};}
+function mapTicket(r){return {id:r.id,number:r.ticketNumber,category:r.category,channelId:r.channelId,status:r.status,claimedBy:r.claimedBy,rating:r.rating,firstResponseAt:r.firstResponseAt,closedAt:r.closedAt,createdAt:r.createdAt,updatedAt:r.updatedAt,ownerId:r.discordId,member:{id:r.memberId,user:{discordId:r.discordId,username:r.username}},_count:{messages:Number(r.messageCount||0)}};}
 const TICKET_SELECT="SELECT t.id,t.ticket_number AS ticketNumber,t.category,t.channel_id AS channelId,t.member_id AS memberId,t.status,t.claimed_by AS claimedBy,t.rating,t.first_response_at AS firstResponseAt,t.closed_at AS closedAt,t.created_at AS createdAt,t.updated_at AS updatedAt,u.discord_id AS discordId,u.username,(SELECT COUNT(*) FROM ticket_messages tm WHERE tm.ticket_id=t.id) AS messageCount FROM tickets t JOIN discord_members dm ON dm.id=t.member_id JOIN users u ON u.id=dm.user_id";
 export async function listTickets(guildId,{status,id}={}){
  const pool=getPool();
