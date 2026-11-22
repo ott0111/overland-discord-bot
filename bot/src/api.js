@@ -284,7 +284,7 @@ export function startCoreApi() {
         if (req.method === "POST") {
           const input = await readJsonBody(req);
           const actor = await requireTeamActor(guildId, input.actorId, "campaigns.manage");
-          const tasks = Array.isArray(input.tasks) ? input.tasks : typeof input.tasks === "string" ? input.tasks.split("\\n").map((task) => task.trim()).filter(Boolean) : [];
+          const tasks = Array.isArray(input.tasks) ? input.tasks : typeof input.tasks === "string" ? input.tasks.split("\n").map((task) => task.trim()).filter(Boolean) : [];
           const campaign = await createCampaign(guildId, { ...input, tasks }, actor.discordId);
           await appendAudit(guildId, actor.discordId, "campaign.create", campaign.id, { name: campaign.name }, "Campaign");
           return send(res, 201, campaign);
