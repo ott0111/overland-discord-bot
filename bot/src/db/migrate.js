@@ -15,7 +15,7 @@ export async function runMigrations() {
   `);
 
   const files = (await fs.readdir(MIGRATIONS_DIR))
-    .filter((name) => /^\\d+_[a-z0-9_-]+\\.sql$/i.test(name))
+    .filter((name) => /^[0-9]+_[a-z0-9_-]+[.]sql$/i.test(name))
     .sort();
 
   for (const name of files) {
