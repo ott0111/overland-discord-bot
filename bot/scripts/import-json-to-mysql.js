@@ -96,7 +96,7 @@ async function importGuild(pool, guildId, guildData) {
     const [name, minimum, config] = roleDefaults[index];
     const roleId = await ensureRole(name);
     const configuredDiscordRoleId = String(guildData.settings?.roleIds?.[name] || "");
-    if (/^\\d{17,20}$/.test(configuredDiscordRoleId)) {
+    if (/^\d{17,20}$/.test(configuredDiscordRoleId)) {
       await pool.execute(
         "UPDATE roles SET discord_role_id = COALESCE(discord_role_id, ?) WHERE guild_id = ? AND id = ?",
         [configuredDiscordRoleId, guildId, roleId],
