@@ -81,3 +81,16 @@ The dashboard's member and economy read paths now use Core API and normalized My
 The dashboard API routes for `members`, `members/[id]`, `points`, and `leaderboards` no longer query Prisma directly. Core API validates the acting staff member and required permission before accessing the MySQL repository.
 
 This does not migrate the bot's own economy service yet. Existing Discord commands and background operations that still use the JSON-compatible store must be moved to normalized repositories separately. The remaining dashboard routes also still need migration.
+
+## Bot economy command cutover
+
+When `OVERLAND_STORAGE=mysql`, bot economy operations now use normalized MySQL repositories instead of writing economy balances and transactions into the compatibility `guild_state` document:
+
+- Staff award commands write to `point_balances` and `point_transactions` transactionally.
+- Daily check-ins and streak bonuses use `daily_checkins` and normalized point transactions, with duplicate-day and daily earning-limit checks.
+- Overcredit spending uses a locked balance row and an idempotency key.
+- Member economy profiles and bot leaderboards read normalized balances and transactions.
+- Helpful-award values read the imported guild settings from MySQL.
+- JSON mode remains available as the compatibility path until the production cutover is approved.
+
+This is the economy-command cutover, not a full bot-data cutover. Role progression and achievement award workflows still need their own normalized implementation. Validate the MySQL mode against a disposable database before enabling it on CoalByte.
