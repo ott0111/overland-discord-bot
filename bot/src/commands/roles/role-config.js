@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply, requirePerm } from "../helpers.js";
+import { command, reply, requirePermAsync } from "../helpers.js";
 import { getGuild, saveStore } from "../../store.js";
 import { listRoles, updateRole } from "../../db/repositories/roles.js";
 
@@ -11,7 +11,7 @@ export default command(
       .addChoices(...["Citizen", "Comrade", "Socialite", "Creator", "Intellect", "Pioneer", "Luminary"].map((x) => ({ name: x, value: x }))))
     .addRoleOption((o) => o.setName("discord-role").setDescription("Discord role").setRequired(true)),
   async (i) => {
-    requirePerm(i, "roles.manage");
+    await requirePermAsync(i, "roles.manage");
     const name = i.options.getString("name", true);
     const discordRole = i.options.getRole("discord-role", true);
     if (discordRole.managed || discordRole.permissions.has(8n) || discordRole.position >= i.guild.members.me.roles.highest.position) {
