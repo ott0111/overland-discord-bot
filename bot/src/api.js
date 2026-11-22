@@ -1,7 +1,7 @@
 import http from "node:http";
 import crypto from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
-import { getGuild } from "./store.js";
+import { getGuild, saveStore } from "./store.js";
 import { databaseHealth } from "./db/health.js";
 
 function authorized(req) {
@@ -101,7 +101,7 @@ export function startCoreApi() {
   }
   const port = Number(process.env.OVERLAND_API_PORT || 3001);
   const host = process.env.OVERLAND_API_HOST || "127.0.0.1";
-  const server = http.createServer((req, res) => {
+  const server = http.createServer(async (req, res) => {
     if (!authorized(req)) return send(res, 401, { error: "Unauthorized" });
     if (!["GET", "POST"].includes(req.method || "")) return send(res, 405, { error: "Method not allowed" });
     const url = new URL(req.url || "/", "http://localhost");
