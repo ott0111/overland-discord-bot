@@ -260,7 +260,7 @@ export function startCoreApi() {
     }
 
 
-    const rolesMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/roles$/);
+    const rolesMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/roles$/);
     if (rolesMatch) {
       const guildId = rolesMatch[1];
       if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Role management requires MySQL storage to be enabled." });
@@ -272,7 +272,7 @@ export function startCoreApi() {
         if (req.method === "POST") {
           const input = await readJsonBody(req);
           const actor = await requireTeamActor(guildId, input.actorId, "roles.manage");
-          if (input.discordRoleId && !/^\\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
+          if (input.discordRoleId && !/^\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
           const role = await createRole(guildId, input);
           await appendAudit(guildId, actor.discordId, "role.create", role.id, { name: role.name }, "Role");
           return send(res, 201, role);
@@ -281,7 +281,7 @@ export function startCoreApi() {
           const input = await readJsonBody(req);
           const actor = await requireTeamActor(guildId, input.actorId, "roles.manage");
           if (!input.id) return send(res, 400, { error: "id is required" });
-          if (input.discordRoleId && !/^\\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
+          if (input.discordRoleId && !/^\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
           const role = await updateRole(guildId, String(input.id), input);
           await appendAudit(guildId, actor.discordId, "role.update", role.id, { name: role.name }, "Role");
           return send(res, 200, role);
