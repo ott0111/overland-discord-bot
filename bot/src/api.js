@@ -1,6 +1,7 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { getGuild } from "./store.js";
+import { databaseHealth } from "./db/health.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -103,7 +104,10 @@ export function startCoreApi() {
     if (!authorized(req)) return send(res, 401, { error: "Unauthorized" });
     if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
     const url = new URL(req.url || "/", "http://localhost");
-    if (url.pathname === "/health") return send(res, 200, { ok: true, service: "overland-core-api" });
+    if (url.pathname === "/health") {
+      const storage = process.env.OVERLAND_STORAGE === "mysql" ? await databaseHealth() : { status: "ok", driver: "json" };
+      return send(res, storage.status === "ok" ? 200 : 503, { ok: storage.status === "ok", service: "overland-core-api", storage });
+    }
     const staffMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/staff\/(\d{17,20})$/);
     if (staffMatch) return send(res, 200, staffRecord(staffMatch[1], staffMatch[2]));
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
