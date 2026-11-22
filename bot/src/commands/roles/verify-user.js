@@ -1,7 +1,7 @@
 import { SlashCommandBuilder } from "discord.js";
 import { command, reply, requirePerm } from "../helpers.js";
 import { getMember, getGuild, saveStore } from "../../store.js";
-import { grantRole, syncDiscordRole, checkProgression } from "../../services/roles.js";
+import { grantRole, syncDiscordRole } from "../../services/roles.js";
 import { completeMemberVerification } from "../../db/repositories/roles.js";
 
 export default command(
@@ -21,8 +21,7 @@ export default command(
     await grantRole(i.guildId, user, "Citizen", i.user.id, i.options.getString("reason") || "Staff verification");
     const discordMember = await i.guild.members.fetch(user.id);
     await syncDiscordRole(getGuild(i.guildId), discordMember, "Citizen", true).catch(() => {});
-    const earned = await checkProgression(i.guildId, user);
-    for (const role of earned) await syncDiscordRole(getGuild(i.guildId), discordMember, role, true).catch(() => {});
+    await syncMemberProgression(i, user);
     await reply(i, "Member verified", user.tag + " is now a Citizen.");
   },
 );
