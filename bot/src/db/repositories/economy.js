@@ -98,7 +98,7 @@ export async function getLeaderboard(guildId, category = "overall", period = "LI
   const categoryFilter = category === "overall" ? "" : " AND pt.category = ?";
   const values = category === "overall" ? [guildId, days] : [guildId, category, days];
   const [rows] = await pool.execute(
-    "SELECT u.username, u.discord_id AS discordId, SUM(pt.amount) AS score FROM point_transactions pt INNER JOIN discord_members dm ON dm.id = pt.member_id INNER JOIN users u ON u.id = dm.user_id WHERE pt.guild_id = ? AND pt.amount > 0" + categoryFilter + " AND pt.created_at >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? DAY) GROUP BY pt.member_id, u.username, u.discord_id ORDER BY score DESC LIMIT 20",
+    "SELECT u.username, u.discord_id AS discordId, SUM(pt.amount) AS score FROM point_transactions pt INNER JOIN discord_members dm ON dm.id = pt.member_id INNER JOIN users u ON u.id = dm.user_id WHERE pt.guild_id = ? AND pt.currency = 'OVERPOINTS' AND pt.amount > 0" + categoryFilter + " AND pt.created_at >= DATE_SUB(UTC_TIMESTAMP(3), INTERVAL ? DAY) GROUP BY pt.member_id, u.username, u.discord_id ORDER BY score DESC LIMIT 20",
     values,
   );
   return rows.map((row, index) => ({ rank: index + 1, username: row.username, discordId: row.discordId, score: row.score }));
