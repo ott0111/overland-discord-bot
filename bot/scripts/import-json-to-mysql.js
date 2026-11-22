@@ -80,6 +80,42 @@ async function importGuild(pool, guildId, guildData) {
     return roleId;
   };
 
+  const roleDefaults = [
+    ["Founder", null, {}],
+    ["Admin", null, {}],
+    ["Warden", null, {}],
+    ["Pioneer", null, {}],
+    ["Luminary", null, {}],
+    ["Creator", null, { progression: { kind: "approved_submission_count", categories: ["social_post", "infographic", "video", "graphic_design", "community_initiative"], minimum: 3 } }],
+    ["Intellect", null, { progression: { kind: "approved_submission_count", categories: ["educational_thread", "article", "industry_research", "contribution_article"], minimum: 3 } }],
+    ["Socialite", 500, { progression: { kind: "minimum_overpoints", minimum: 500 } }],
+    ["Comrade", null, { requireVerified: true, requireXFollow: true }],
+    ["Citizen", null, { requireVerified: true }],
+  ];
+  for (let index = 0; index < roleDefaults.length; index++) {
+    const [name, minimum, config] = roleDefaults[index];
+    const roleId = await ensureRole(name);
+    const configuredDiscordRoleId = String(guildData.settings?.roleIds?.[name] || "");
+    if (/^\\d{17,20}$/.test(configuredDiscordRoleId)) {
+      await pool.execute(
+        "UPDATE roles SET discord_role_id = COALESCE(discord_role_id, ?) WHERE guild_id = ? AND id = ?",
+        [configuredDiscordRoleId, guildId, roleId],
+      );
+    }
+    await pool.execute(
+      "UPDATE roles SET min_overpoints = COALESCE(min_overpoints, ?), config = CASE WHEN config IS NULL OR JSON_LENGTH(config) = 0 THEN CAST(? AS JSON) ELSE config END WHERE guild_id = ? AND id = ?",
+      [minimum, JSON.stringify(config), guildId, roleId],
+    );
+  }
+  const citizenRoleId = roleIds.get("Citizen");
+  const comradeRoleId = roleIds.get("Comrade");
+  if (citizenRoleId && comradeRoleId) {
+    await pool.execute(
+      "UPDATE roles SET requires_role_id = COALESCE(requires_role_id, ?) WHERE guild_id = ? AND id = ?",
+      [citizenRoleId, guildId, comradeRoleId],
+    );
+  }
+
   for (const [discordId, member] of members) {
     const memberId = memberIds.get(String(member?.id || discordId));
     if (!memberId) continue;
@@ -91,6 +127,19 @@ async function importGuild(pool, guildId, guildData) {
         [stableId("mr", guildId + ":" + discordId + ":" + roleName), guildId, memberId, roleId],
       );
     }
+  }
+
+  for (const history of Array.isArray(guildData.roleHistory) ? guildData.roleHistory : []) {
+    const discordId = String(history.memberId || "");
+    const memberId = memberIds.get(discordId);
+    const roleId = await ensureRole(history.role);
+    if (!memberId || !roleId) continue;
+    const action = String(history.action || "GRANTED").toUpperCase() === "REVOKED" ? "REVOKED" : "GRANTED";
+    const historyId = stableId("role-history", guildId + ":" + (history.id || JSON.stringify(history)));
+    await pool.execute(
+      "INSERT IGNORE INTO role_history (id, guild_id, member_id, role_id, action, actor_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [historyId, guildId, memberId, roleId, action, history.actorId ? String(history.actorId) : null, history.reason ? String(history.reason).slice(0, 1000) : null, asDate(history.at || history.createdAt) || new Date()],
+    );
   }
 
   for (const tx of Array.isArray(guildData.transactions) ? guildData.transactions : []) {
@@ -246,7 +295,7 @@ async function main() {
     await importGuild(pool, guildId, guildData);
   }
   console.log("[Import] Compatibility rows inserted: " + inserted + "; existing rows skipped: " + skipped + ".");
-  console.log("[Import] Normalized identity, balances, roles, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
+  console.log("[Import] Normalized identity, balances, role catalogue/mappings/assignments/history, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
   console.log("[Import] The original JSON file was not changed or deleted.");
 }
 
