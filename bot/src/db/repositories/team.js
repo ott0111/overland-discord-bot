@@ -119,3 +119,38 @@ export async function removeTeamMember(guildId, id, actorIsOwner) {
     throw error;
   } finally { connection.release(); }
 }
+
+export async function bootstrapOwner(guildId, discordId, username = "Owner") {
+  const pool = getPool();
+  const connection = await pool.getConnection();
+  const safeUsername = String(username || "Owner").trim().slice(0, 100) || "Owner";
+  const userId = "discord:" + String(discordId);
+  try {
+    await connection.beginTransaction();
+    await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
+    await connection.execute(
+      "INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)",
+      [userId, String(discordId), safeUsername],
+    );
+    const [users] = await connection.execute("SELECT id FROM users WHERE discord_id = ? LIMIT 1", [String(discordId)]);
+    const actualUserId = users[0].id;
+    await connection.execute(
+      "INSERT INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)",
+      ["member:" + guildId + ":" + discordId, guildId, actualUserId],
+    );
+    const [members] = await connection.execute("SELECT id FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, actualUserId]);
+    const [groups] = await connection.execute("SELECT id FROM permission_groups WHERE name = 'Owner' LIMIT 1");
+    if (!groups.length) throw new Error("Owner permission group has not been seeded.");
+    await connection.execute(
+      "INSERT INTO internal_team_members (id, guild_id, member_id, discord_id, username, public_role, job_title, department, responsibilities, group_id, status) VALUES (?, ?, ?, ?, ?, 'Founder', 'Founder', 'Executive', 'Full control of Overland Finance community operations.', ?, 'ACTIVE') ON DUPLICATE KEY UPDATE username = VALUES(username), public_role = VALUES(public_role), job_title = VALUES(job_title), department = VALUES(department), responsibilities = VALUES(responsibilities), group_id = VALUES(group_id), status = 'ACTIVE'",
+      [crypto.randomUUID(), guildId, members[0].id, String(discordId), safeUsername, groups[0].id],
+    );
+    await connection.commit();
+    return { ok: true, discordId: String(discordId) };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
