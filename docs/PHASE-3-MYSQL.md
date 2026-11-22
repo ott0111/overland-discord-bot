@@ -126,7 +126,8 @@ This is the role-configuration and guide foundation, not the complete role/verif
 - Verification challenge state and rules acceptance are stored in normalized member profile JSON. Verified status, X-follow status, and suspicious-account status use normalized `discord_members` fields.
 - The `/rules`, `/verify`, `/verify-answer`, `/verify-user`, `/unverify`, and `/comrade-verify` flows now use normalized MySQL state when MySQL mode is active. The verification button flow is also connected to the normalized state.
 - Role progression is re-evaluated after daily check-ins and the existing staff point-award commands; newly earned roles are synchronized to Discord using the MySQL role mapping.
-- Role-related staff commands and the updated economy award commands use an asynchronous permission check against normalized staff records in MySQL mode.
+- Role-related staff commands and the updated economy award commands use an asynchronous permission check against normalized staff records in MySQL mode. The environment-configured Owner is bootstrapped into normalized team storage on bot startup when MySQL mode is active.
+- The dashboard Public Roles editor supports Discord role IDs and per-role guide instructions; the guide command resolves configured role IDs into Discord role mentions and warns when mappings are missing or stale.
 - The dashboard Public Roles surface now allows staff to set Discord role IDs and continues to call Core API rather than Prisma.
 - Role history reads from normalized MySQL in MySQL mode.
 - The `/role-guide` command publishes or refreshes the role catalogue as persistent branded Discord embeds.
