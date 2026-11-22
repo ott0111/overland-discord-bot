@@ -7,7 +7,7 @@ function clipped(value, max = 1000) {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
 
-function requirementLines(role) {
+export function formatRoleRequirements(role) {
   const lines = [];
   if (role.minOverpoints !== null) lines.push("**Minimum:** " + Number(role.minOverpoints).toLocaleString() + " Overpoints");
   if (role.requiresRole?.name) lines.push("**Prerequisite:** " + role.requiresRole.name);
@@ -69,7 +69,7 @@ async function buildGuideEmbeds(guild, roles) {
       .setTimestamp();
     for (const role of chunk) {
       const description = clipped(role.description, 300);
-      const value = [description, requirementLines(role)].filter(Boolean).join("\n\n");
+      const value = [description, formatRoleRequirements(role)].filter(Boolean).join("\n\n");
       page.addFields({ name: clipped(role.label + "  •  " + role.name, 256), value: clipped(value, 1024), inline: false });
     }
     embeds.push(page);
