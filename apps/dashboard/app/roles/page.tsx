@@ -29,13 +29,16 @@ export default function RolesPage() {
     };
   }
   function setDraft(id: string, patch: Partial<RoleDraft>) {
-    setDrafts((current) => ({
-      ...current,
-      [id]: { ...draftFor(roles.data?.find((role) => role.id === id) || {
-        id, name: "", description: null, isInternal: false, isSelfAssignable: false,
-        discordRoleId: null, minOverpoints: null, sortOrder: 0, requiresRole: null, _count: { members: 0 },
-      }), ...patch },
-    }));
+    setDrafts((current) => {
+      const role = roles.data?.find((item) => item.id === id);
+      const base: RoleDraft = current[id] ?? {
+        requiresRoleId: role?.requiresRole?.id ?? "",
+        minOverpoints: role?.minOverpoints === null || role?.minOverpoints === undefined ? "" : String(role.minOverpoints),
+        discordRoleId: role?.discordRoleId ?? "",
+        isSelfAssignable: role?.isSelfAssignable ?? false,
+      };
+      return { ...current, [id]: { ...base, ...patch } };
+    });
   }
   async function save(r: RoleRow) {
     setMsg(""); setErr("");
