@@ -1,52 +1,8 @@
-import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
-export const dynamic = "force-dynamic";
-
-export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "tickets.view");
-  if (error) return error;
-  const params = new URL(req.url).searchParams;
-  const id = params.get("id") ?? undefined;
-  const status = params.get("status") ?? undefined;
-  try {
-    if (id) {
-      const ticket = await prisma.ticket.findUnique({
-        where: { id },
-        include: { member: { include: { user: true } }, messages: { orderBy: { createdAt: "asc" } } },
-      });
-      if (!ticket) return NextResponse.json({ error: "Ticket not found" }, { status: 404 });
-      return NextResponse.json(ticket);
-    }
-    const tickets = await prisma.ticket.findMany({
-      where: status ? { status: status as never } : undefined,
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { member: { include: { user: true } }, _count: { select: { messages: true } } },
-    });
-    return NextResponse.json(tickets);
-  } catch {
-    return NextResponse.json([], { status: 200 });
-  }
-}
-
-export async function PATCH(req: Request) {
-  const { session, error } = await requireStaff(req, "tickets.manage");
-  if (error) return error;
-  const body = (await req.json()) as { id?: string; action?: string; rating?: number };
-  if (!body.id || !body.action) return NextResponse.json({ error: "id and action are required" }, { status: 400 });
-  try {
-    let data: Record<string, unknown> = {};
-    if (body.action === "claim") data = { status: "CLAIMED", claimedBy: session?.discordId ?? null, firstResponseAt: new Date() };
-    else if (body.action === "close") data = { status: "CLOSED", closedAt: new Date() };
-    else if (body.action === "reopen") data = { status: "OPEN", closedAt: null };
-    else if (body.action === "archive") data = { status: "ARCHIVED" };
-    else if (body.action === "rate" && typeof body.rating === "number") data = { rating: Math.max(1, Math.min(5, body.rating)) };
-    else return NextResponse.json({ error: "Unknown action" }, { status: 400 });
-    const ticket = await prisma.ticket.update({ where: { id: body.id }, data: data as never });
-    await writeAudit(session?.discordId ?? null, "ticket." + body.action, "Ticket", ticket.id, { number: ticket.number });
-    return NextResponse.json(ticket);
-  } catch {
-    return NextResponse.json({ error: "Database unavailable or ticket not found" }, { status: 503 });
-  }
-}
+import {NextResponse} from "next/server";
+import {coreApiGet,coreApiPatch,configuredGuildId} from "../../../lib/core-api";
+import {requireStaff} from "../../../lib/auth";
+export const dynamic="force-dynamic";
+function path(){const id=configuredGuildId();if(!/^\\d{17,20}$/.test(id))throw new Error("Discord guild is not configured");return "/v1/guilds/"+encodeURIComponent(id)+"/tickets";}
+function fail(error:unknown){const status=typeof error==="object"&&error!==null&&"status" in error?Number((error as {status?:number}).status):503;const safe=status>=400&&status<600?status:503;return NextResponse.json({error:error instanceof Error&&safe!==503?error.message:"Ticket service unavailable"},{status:safe});}
+export async function GET(req:Request){const {session,error}=await requireStaff(req,"tickets.view");if(error)return error;const params=new URL(req.url).searchParams;try{const query=new URLSearchParams({actorId:session!.discordId});const id=params.get("id"),status=params.get("status");if(id)query.set("id",id);if(status)query.set("status",status);return NextResponse.json(await coreApiGet(path()+"?"+query.toString()));}catch(err){return fail(err);}}
+export async function PATCH(req:Request){const {session,error}=await requireStaff(req,"tickets.manage");if(error)return error;let body:{id?:string;action?:string;rating?:number};try{body=await req.json();}catch{return NextResponse.json({error:"Invalid JSON body"},{status:400});}if(!body.id||!body.action)return NextResponse.json({error:"id and action are required"},{status:400});try{return NextResponse.json(await coreApiPatch(path(),{...body,actorId:session!.discordId}));}catch(err){return fail(err);}}
