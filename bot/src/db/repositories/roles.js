@@ -126,7 +126,7 @@ async function resolveRoleMember(connection, guildId, user) {
     ["member:" + guildId + ":" + discordId, guildId, userId],
   );
   const [rows] = await connection.execute(
-    "SELECT dm.id, dm.verified_at AS verifiedAt, dm.x_follow_verified AS xFollowVerified, dm.is_suspicious AS isSuspicious, u.discord_id AS discordId FROM discord_members dm INNER JOIN users u ON u.id = dm.user_id WHERE dm.guild_id = ? AND u.discord_id = ? LIMIT 1",
+    "SELECT dm.id, dm.verified_at AS verifiedAt, dm.x_follow_verified AS xFollowVerified, dm.is_suspicious AS isSuspicious, dm.profile, u.discord_id AS discordId FROM discord_members dm INNER JOIN users u ON u.id = dm.user_id WHERE dm.guild_id = ? AND u.discord_id = ? LIMIT 1",
     [guildId, discordId],
   );
   if (!rows.length) throw new Error("Unable to resolve guild member.");
@@ -269,6 +269,107 @@ export async function evaluateMemberRoles(guildId, user) {
   } catch (error) {
     await connection.rollback();
     throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function getMemberVerification(guildId, user) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    return {
+      memberId: member.id,
+      discordId: member.discordId,
+      verifiedAt: member.verifiedAt,
+      xFollowVerified: member.xFollowVerified,
+      isSuspicious: member.isSuspicious,
+      profile: parseJson(member.profile),
+    };
+  } finally {
+    connection.release();
+  }
+}
+
+export async function acceptMemberRules(guildId, user, acceptedAt = new Date().toISOString()) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET profile = JSON_SET(COALESCE(profile, JSON_OBJECT()), '$.rulesAcceptedAt', ?) WHERE guild_id = ? AND id = ?",
+      [acceptedAt, guildId, member.id],
+    );
+    return acceptedAt;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function saveVerificationChallenge(guildId, user, challenge) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET profile = JSON_SET(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge', CAST(? AS JSON)) WHERE guild_id = ? AND id = ?",
+      [JSON.stringify(challenge), guildId, member.id],
+    );
+    return challenge;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function completeMemberVerification(guildId, user, verifiedAt = new Date().toISOString()) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET verified_at = ?, is_suspicious = FALSE, profile = JSON_REMOVE(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge') WHERE guild_id = ? AND id = ?",
+      [verifiedAt, guildId, member.id],
+    );
+    return verifiedAt;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function resetMemberVerification(guildId, user) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET verified_at = NULL, profile = JSON_REMOVE(COALESCE(profile, JSON_OBJECT()), '$.verificationChallenge') WHERE guild_id = ? AND id = ?",
+      [guildId, member.id],
+    );
+    return true;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function setMemberXFollow(guildId, user, following) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET x_follow_verified = ?, x_follow_verified_at = ? WHERE guild_id = ? AND id = ?",
+      [Boolean(following), following ? new Date() : null, guildId, member.id],
+    );
+    return Boolean(following);
+  } finally {
+    connection.release();
+  }
+}
+
+export async function setMemberSuspicious(guildId, user, suspicious) {
+  const connection = await getPool().getConnection();
+  try {
+    const member = await resolveRoleMember(connection, guildId, user);
+    await connection.execute(
+      "UPDATE discord_members SET is_suspicious = ? WHERE guild_id = ? AND id = ?",
+      [Boolean(suspicious), guildId, member.id],
+    );
+    return Boolean(suspicious);
   } finally {
     connection.release();
   }
