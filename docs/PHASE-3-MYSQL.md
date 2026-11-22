@@ -133,3 +133,16 @@ This is the role-configuration and guide foundation, not the complete role/verif
 - The `/role-guide` command publishes or refreshes the role catalogue as persistent branded Discord embeds.
 
 Remaining limitations: verification settings, blacklist records, role-menu panel configuration, achievements, and some community/submission/referral workflows still use compatibility JSON or legacy paths. The role progression evaluator currently implements the existing Overland rules; richer multi-category and all-of/any-of requirement editing is defined in `docs/ROLE-PROGRESSION-GUIDE.md` but is not yet exposed as a complete dashboard editor. This work has not been tested against a disposable MySQL database or a live test Discord guild. Production migration remains unauthorized.
+
+## Phase 3.8: Achievements cutover
+
+- Added a normalized achievement repository for listing definitions, creating custom achievements, evaluating member eligibility, and recording member awards.
+- Added migration 0005 to seed the `achievements.manage` permission for Owner and Administration.
+- The JSON importer now seeds the existing Overland achievement definitions and imports historical member achievement records without replacing existing definitions.
+- Added Core API GET/POST achievement routes with per-request `achievements.manage` authorization.
+- Moved the dashboard Achievements API away from direct Prisma access to Core API + MySQL.
+- Bot achievement checks now use normalized records in MySQL mode. Existing conditions include verification, approved contribution/social/creative submissions, referrals, check-in counts, streaks, and Overpoints milestones.
+- Achievement awards are idempotent. Configured Overpoints/Overcredits rewards are written transactionally with normalized point transactions.
+- Achievement evaluation now runs during daily check-ins, verification, X-follow verification, and existing staff point-award flows. Newly awarded points are followed by role progression evaluation.
+
+Remaining limitations: historical campaign submissions and referral records are not yet fully imported, so achievement kinds that depend on those records cannot be considered reconciled until those domains are migrated. Custom achievements currently use an Overpoints threshold; event-specific custom conditions and full achievement editing/deactivation remain future work. Validate against a disposable MySQL database before production.
