@@ -1,6 +1,7 @@
 import { SlashCommandBuilder, ChannelType, PermissionFlagsBits, AttachmentBuilder, MessageFlags, ActionRowBuilder, ButtonBuilder, ButtonStyle } from "discord.js";
 import { command, reply, requireDiscordPerm, embed, successEmbed } from "../helpers.js";
-import { getGuild, saveStore } from "../../store.js";\nimport { createTicketRecord, getTicketByChannel, updateTicket } from "../../db/repositories/tickets-rewards.js";
+import { getGuild, saveStore } from "../../store.js";
+import { createTicketRecord, getTicketByChannel, updateTicket } from "../../db/repositories/tickets-rewards.js";
 
 const categories = [
   { name: "Support", value: "support" },
