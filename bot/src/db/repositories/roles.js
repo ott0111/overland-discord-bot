@@ -94,3 +94,20 @@ export async function updateRole(guildId, id, input) {
   const [rows] = await pool.execute(SELECT_ROLES + " WHERE r.guild_id = ? AND r.id = ? LIMIT 1", [guildId, id]);
   return mapRole(rows[0]);
 }
+
+export async function getRoleGuideConfig(guildId) {
+  const [rows] = await getPool().execute(
+    "SELECT config_value FROM bot_configuration WHERE guild_id = ? AND config_key = 'role_guide' LIMIT 1",
+    [guildId],
+  );
+  return rows.length ? parseJson(rows[0].config_value) : {};
+}
+
+export async function saveRoleGuideConfig(guildId, config, actorId) {
+  const id = crypto.randomUUID();
+  await getPool().execute(
+    "INSERT INTO bot_configuration (id, guild_id, config_key, config_value, updated_by) VALUES (?, ?, 'role_guide', ?, ?) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_by = VALUES(updated_by)",
+    [id, guildId, JSON.stringify(config), actorId || null],
+  );
+  return config;
+}
