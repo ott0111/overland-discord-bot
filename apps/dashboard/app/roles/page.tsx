@@ -16,13 +16,14 @@ export default function RolesPage() {
   const [drafts, setDrafts] = useState<Record<string, { requiresRoleId: string; minOverpoints: string; isSelfAssignable: boolean }>>({});
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [discordRoleId, setDiscordRoleId] = useState("");
   const [isSelfAssignable, setIsSelfAssignable] = useState(false);
 
   function draftFor(r: RoleRow) {
-    return drafts[r.id] ?? { requiresRoleId: r.requiresRole?.id ?? "", minOverpoints: r.minOverpoints === null ? "" : String(r.minOverpoints), isSelfAssignable: r.isSelfAssignable };
+    return drafts[r.id] ?? { requiresRoleId: r.requiresRole?.id ?? "", minOverpoints: r.minOverpoints === null ? "" : String(r.minOverpoints), discordRoleId: r.discordRoleId ?? "", isSelfAssignable: r.isSelfAssignable };
   }
-  function setDraft(id: string, patch: Partial<{ requiresRoleId: string; minOverpoints: string; isSelfAssignable: boolean }>) {
-    setDrafts((d) => ({ ...d, [id]: { ...(d[id] ?? { requiresRoleId: "", minOverpoints: "", isSelfAssignable: false }), ...patch } }));
+  function setDraft(id: string, patch: Partial<{ requiresRoleId: string; minOverpoints: string; discordRoleId: string; isSelfAssignable: boolean }>) {
+    setDrafts((d) => ({ ...d, [id]: { ...(d[id] ?? { requiresRoleId: "", minOverpoints: "", discordRoleId: "", isSelfAssignable: false }), ...patch } }));
   }
   async function save(r: RoleRow) {
     setMsg(""); setErr("");
@@ -32,6 +33,7 @@ export default function RolesPage() {
       requiresRoleId: d.requiresRoleId || null,
       minOverpoints: d.minOverpoints === "" ? null : Number(d.minOverpoints),
       isSelfAssignable: d.isSelfAssignable,
+      discordRoleId: d.discordRoleId.trim() || null,
     });
     if (!res.ok) setErr(res.error);
     else { setMsg("Role " + r.name + " updated."); roles.reload(); }
@@ -39,9 +41,9 @@ export default function RolesPage() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setMsg(""); setErr("");
-    const res = await api("/api/roles", "POST", { name, description, isSelfAssignable });
+    const res = await api("/api/roles", "POST", { name, description, isSelfAssignable, discordRoleId: discordRoleId.trim() || null });
     if (!res.ok) setErr(res.error);
-    else { setMsg("Role " + name + " created."); setName(""); setDescription(""); setIsSelfAssignable(false); roles.reload(); }
+    else { setMsg("Role " + name + " created."); setName(""); setDescription(""); setDiscordRoleId(""); setIsSelfAssignable(false); roles.reload(); }
   }
   const list = roles.data ?? [];
   return (
@@ -87,7 +89,7 @@ export default function RolesPage() {
         <form onSubmit={create}>
           <div className="form-row">
             <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <Field label="Description"><input className="input" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
+            <Field label="Description"><input className="input" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>\n            <Field label="Discord Role ID"><input className="input" value={discordRoleId} onChange={(e) => setDiscordRoleId(e.target.value)} placeholder="Optional Discord role ID" /></Field>
             <label className="checkbox-row"><input type="checkbox" checked={isSelfAssignable} onChange={(e) => setIsSelfAssignable(e.target.checked)} /> Self-assignable interest role</label>
             <Btn kind="primary" type="submit">Create role</Btn>
           </div>
