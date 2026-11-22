@@ -20,7 +20,7 @@ function requirementLines(role) {
         const label = clipped(item.label || item.name || item.category || "Requirement", 80);
         const detail = clipped(item.description || item.instructions || "", 180);
         const amount = Number.isSafeInteger(item.minimum) ? " • " + item.minimum.toLocaleString() : "";
-        const channel = /^\\d{17,20}$/.test(String(item.channelId || "")) ? " in <#" + item.channelId + ">" : "";
+        const channel = /^\d{17,20}$/.test(String(item.channelId || "")) ? " in <#" + item.channelId + ">" : "";
         lines.push("• **" + label + "**" + amount + channel + (detail ? " • " + detail : ""));
       }
     }
@@ -53,8 +53,8 @@ async function buildGuideEmbeds(guild, roles) {
     .setTimestamp();
 
   const embeds = [intro];
-  for (let offset = 0; offset < resolved.length; offset += 8) {
-    const chunk = resolved.slice(offset, offset + 8);
+  for (let offset = 0; offset < resolved.length; offset += 4) {
+    const chunk = resolved.slice(offset, offset + 4);
     const page = new EmbedBuilder()
       .setColor(BRAND.primary)
       .setTitle(offset === 0 ? "PUBLIC ROLE PROGRESSION" : "PUBLIC ROLE PROGRESSION  •  CONTINUED")
