@@ -1,10 +1,12 @@
 import { getGuild, getMember, saveStore } from "../store.js";
 import { createReward as createRewardMysql, claimReward as claimRewardMysql, reviewRewardClaim, listRewards } from "../db/repositories/tickets-rewards.js";
-export async function createReward(guildId,data,actorId) {\n if(process.env.OVERLAND_STORAGE==="mysql") return createRewardMysql(guildId,data,actorId);
+export async function createReward(guildId,data,actorId) {
+ if(process.env.OVERLAND_STORAGE==="mysql") return createRewardMysql(guildId,data,actorId);
  const g=getGuild(guildId), r={id:crypto.randomUUID(),...data,active:true,createdBy:actorId,createdAt:new Date().toISOString()};
  g.rewards.unshift(r); await saveStore(); return r;
 }
-export async function claimReward(guildId,user,rewardId) {\n if(process.env.OVERLAND_STORAGE==="mysql") return claimRewardMysql(guildId,user.id,rewardId);
+export async function claimReward(guildId,user,rewardId) {
+ if(process.env.OVERLAND_STORAGE==="mysql") return claimRewardMysql(guildId,user.id,rewardId);
  const g=getGuild(guildId), m=getMember(guildId,user), r=g.rewards.find(x=>x.id===rewardId&&x.active);
  if(!r) throw new Error("Reward not found or inactive.");
  if(r.stock===0) throw new Error("This reward is out of stock.");
@@ -17,7 +19,8 @@ export async function claimReward(guildId,user,rewardId) {\n if(process.env.OVER
  g.transactions.unshift({id:crypto.randomUUID(),memberId:m.id,username:m.username,currency:"OVERCREDITS",category:"reward",amount:-r.costOvercredits,balanceAfter:m.overcredits,source:"REWARD_CLAIM",reason:r.name,actorId:m.id,idempotencyKey:"claim:"+claim.id,at:new Date().toISOString()});
  await saveStore(); return claim;
 }
-export async function reviewClaim(guildId,claimId,action,actorId) {\n if(process.env.OVERLAND_STORAGE==="mysql") return reviewRewardClaim(guildId,claimId,action==="approve"?"APPROVED":"REJECTED",actorId);
+export async function reviewClaim(guildId,claimId,action,actorId) {
+ if(process.env.OVERLAND_STORAGE==="mysql") return reviewRewardClaim(guildId,claimId,action==="approve"?"APPROVED":"REJECTED",actorId);
  const g=getGuild(guildId), c=g.claims.find(x=>x.id===claimId);
  if(!c||c.status!=="PENDING") throw new Error("Pending claim not found.");
  const r=g.rewards.find(x=>x.id===c.rewardId), m=getMember(guildId,c.memberId);
@@ -27,4 +30,5 @@ export async function reviewClaim(guildId,claimId,action,actorId) {\n if(process
 }
 
 export async function fulfillClaim(guildId,claimId,actorId){if(process.env.OVERLAND_STORAGE==="mysql")return reviewRewardClaim(guildId,claimId,"FULFILLED",actorId);const g=getGuild(guildId),c=g.claims.find(x=>x.id===claimId);if(!c||c.status!=="APPROVED")throw new Error("Only approved claims can be fulfilled.");c.status="FULFILLED";c.fulfilledBy=actorId;c.fulfilledAt=new Date().toISOString();await saveStore();return c;}
-\nexport async function getRewards(guildId){if(process.env.OVERLAND_STORAGE==="mysql")return (await listRewards(guildId)).rewards;return getGuild(guildId).rewards;}\n
+
+export async function getRewards(guildId){if(process.env.OVERLAND_STORAGE==="mysql")return (await listRewards(guildId)).rewards;return getGuild(guildId).rewards;}
