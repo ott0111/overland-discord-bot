@@ -200,7 +200,7 @@ async function main() {
   }
   console.log("[Import] Existing compatibility guild records: " + existing);
   console.log("[Import] New compatibility records eligible: " + (entries.length - existing));
-  console.log("[Import] Normalized candidates: " + memberCount + " members, " + transactionCount + " transactions, " + staffCount + " staff records.");
+  console.log("[Import] Normalized candidates: " + memberCount + " members, " + transactionCount + " transactions, " + staffCount + " staff records, " + (entries.reduce((n, [,g]) => n + (Array.isArray(g.rewards)?g.rewards.length:0),0)) + " rewards, " + (entries.reduce((n, [,g]) => n + (Array.isArray(g.claims)?g.claims.length:0),0)) + " reward claims, " + (entries.reduce((n, [,g]) => n + (Array.isArray(g.tickets)?g.tickets.length:0),0)) + " tickets.");
   if (!apply) {
     console.log("[Import] Nothing was written. Review the counts, then rerun with --apply.");
     return;
@@ -218,7 +218,7 @@ async function main() {
     await importGuild(pool, guildId, guildData);
   }
   console.log("[Import] Compatibility rows inserted: " + inserted + "; existing rows skipped: " + skipped + ".");
-  console.log("[Import] Normalized identity, balances, roles, transactions, and staff records imported idempotently.");
+  console.log("[Import] Normalized identity, balances, roles, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
   console.log("[Import] The original JSON file was not changed or deleted.");
 }
 
