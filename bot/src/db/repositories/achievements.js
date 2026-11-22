@@ -82,7 +82,7 @@ async function conditionMet(connection, guildId, member, achievement, balances) 
   const kind = String(achievement.kind || "CUSTOM").toUpperCase();
   const threshold = Number(achievement.threshold || 1);
   if (kind === "VERIFICATION") return Boolean(member.verifiedAt);
-  if (kind === "POINTS" || kind === "MILESTONE") return Number(balances.overpoints || 0) >= threshold;
+  if (kind === "POINTS" || kind === "MILESTONE" || kind === "CUSTOM") return Number(balances.overpoints || 0) >= threshold;
   if (kind === "CHECKIN") {
     const [rows] = await connection.execute("SELECT COUNT(*) AS total FROM daily_checkins WHERE guild_id = ? AND member_id = ?", [guildId, member.id]);
     return Number(rows[0]?.total || 0) >= threshold;
