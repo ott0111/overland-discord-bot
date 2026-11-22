@@ -7,8 +7,10 @@ export default command(
   new SlashCommandBuilder().setName("daily").setDescription("Claim daily points and streak bonus"),
   async (i) => {
     const result = await dailyCheckin(i.guildId, i.user);
-    const roles = await syncMemberProgression(i, i.user);
-    const achievements = process.env.OVERLAND_STORAGE === "mysql" ? [] : await checkAchievements(i.guildId, i.user);
+    const rolesBefore = await syncMemberProgression(i, i.user);
+    const achievements = await checkAchievements(i.guildId, i.user);
+    const rolesAfter = achievements.length ? await syncMemberProgression(i, i.user) : [];
+    const roles = [...new Set([...rolesBefore, ...rolesAfter])];
     await reply(
       i,
       "Daily check-in",
