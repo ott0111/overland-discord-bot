@@ -3,9 +3,9 @@ import { NextResponse } from "next/server";
 import { coreApiGet, coreApiPost, configuredGuildId } from "./core-api";
 
 /** Discord OAuth2 for the dashboard. Exchange code for a token, fetch the user, then
- *  check InternalTeamMember + PermissionGroup in the database for RBAC. No session
- *  is trusted without that database check. Staff status is decided at login time;
- *  a session with group === null belongs to a Discord user who is not staff.
+ *  check staff membership and permissions through the Core API for RBAC. No session
+ *  permissions are trusted without that live check. A session with group === null
+ *  belongs to a Discord user who is not staff.
  *
  *  Sessions are HMAC-signed (SHA-256) with DASHBOARD_SESSION_SECRET, falling back
  *  to NEXTAUTH_SECRET. An unsigned or tampered cookie is rejected outright, so a
