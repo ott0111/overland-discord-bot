@@ -9,7 +9,7 @@ export default command(
   new SlashCommandBuilder().setName("unverify").setDescription("Reset a member's Overland verification")
     .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true)),
   async (i) => {
-    requirePerm(i, "roles.manage");
+    await requirePermAsync(i, "roles.manage");
     const user = i.options.getUser("member", true);
     const discordMember = await i.guild.members.fetch(user.id).catch(() => null);
     let removed;
