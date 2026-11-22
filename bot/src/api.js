@@ -5,6 +5,7 @@ import { getGuild, saveStore } from "./store.js";
 import { databaseHealth } from "./db/health.js";
 import { findStaffMember } from "./db/repositories/staff.js";
 import { listTeam, addTeamMember, updateTeamMember, removeTeamMember } from "./db/repositories/team.js";
+import { listMembers, getMemberDetails } from "./db/repositories/members.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -147,6 +148,29 @@ export function startCoreApi() {
     if (staffMatch) return send(res, 200, await staffRecord(staffMatch[1], staffMatch[2]));
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
+
+
+    const membersMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/members$/);
+    const memberMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/members\/([^/]+)$/);
+    if (membersMatch || memberMatch) {
+      const guildId = (membersMatch || memberMatch)[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Member records require MySQL storage to be enabled." });
+      if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      try {
+        await requireTeamActor(guildId, url.searchParams.get("actorId"), "economy.view");
+        if (membersMatch) {
+          const page = Math.min(100000, Math.max(1, Number(url.searchParams.get("page") || 1) || 1));
+          const limit = Math.min(100, Math.max(1, Number(url.searchParams.get("limit") || 20) || 20));
+          const q = String(url.searchParams.get("q") || "").slice(0, 100);
+          return send(res, 200, await listMembers(guildId, { q, page, limit }));
+        }
+        const member = await getMemberDetails(guildId, decodeURIComponent(memberMatch[2]));
+        if (!member) return send(res, 404, { error: "Member not found" });
+        return send(res, 200, member);
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Member service unavailable" });
+      }
+    }
 
     const teamMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/team$/);
     if (teamMatch) {
