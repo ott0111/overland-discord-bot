@@ -60,8 +60,7 @@ export async function adjustMemberBalance(guildId, memberRef, currency, amount, 
     const before = Number(balances[0][field]);
     const after = before + amount;
     if (!Number.isSafeInteger(after) || after < 0) throw Object.assign(new Error("Adjustment would make the balance negative or exceed safe limits"), { status: 400 });
-    const categoryField = currency === "OVERPOINTS" ? "community_points" : null;
-    await connection.execute("UPDATE point_balances SET " + field + " = ? " + (categoryField && amount > 0 ? ", community_points = community_points + ?" : "") + " WHERE member_id = ?", categoryField && amount > 0 ? [after, amount, memberId] : [after, memberId]);
+    await connection.execute("UPDATE point_balances SET " + field + " = ? WHERE member_id = ?", [after, memberId]);
     const id = crypto.randomUUID();
     await connection.execute(
       "INSERT INTO point_transactions (id, guild_id, member_id, currency, category, amount, balance_after, source, idempotency_key, reason, actor_id) VALUES (?, ?, ?, ?, 'admin', ?, ?, 'ADMIN_ADJUSTMENT', ?, ?, ?)",
