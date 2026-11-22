@@ -1,4 +1,5 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
 import { getGuild } from "./store.js";
 import { databaseHealth } from "./db/health.js";
@@ -102,7 +103,7 @@ export function startCoreApi() {
   const host = process.env.OVERLAND_API_HOST || "127.0.0.1";
   const server = http.createServer((req, res) => {
     if (!authorized(req)) return send(res, 401, { error: "Unauthorized" });
-    if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
+    if (!["GET", "POST"].includes(req.method || "")) return send(res, 405, { error: "Method not allowed" });
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === "/health") {
       const storage = process.env.OVERLAND_STORAGE === "mysql" ? await databaseHealth() : { status: "ok", driver: "json" };
@@ -113,7 +114,39 @@ export function startCoreApi() {
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
     const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
-    if (auditMatch) {
+    if (auditMatch && req.method === "POST") {
+      let body = "";
+      req.on("data", (chunk) => {
+        body += chunk;
+        if (body.length > 20000) req.destroy();
+      });
+      req.on("end", async () => {
+        try {
+          const input = JSON.parse(body || "{}");
+          const actorId = String(input.actorId || "");
+          const staff = staffRecord(auditMatch[1], actorId);
+          if (!staff.group) return send(res, 403, { error: "Active staff access required" });
+          const guild = getGuild(auditMatch[1]);
+          const entry = {
+            id: crypto.randomUUID(),
+            actorId,
+            action: String(input.action || "operation").slice(0, 120),
+            entityType: input.entityType ? String(input.entityType).slice(0, 120) : null,
+            entityId: input.entityId ? String(input.entityId).slice(0, 190) : null,
+            details: input.details && typeof input.details === "object" ? input.details : {},
+            createdAt: new Date().toISOString(),
+          };
+          guild.audit.unshift(entry);
+          if (guild.audit.length > 5000) guild.audit.length = 5000;
+          await saveStore();
+          return send(res, 201, { ok: true, id: entry.id });
+        } catch {
+          return send(res, 400, { error: "Invalid audit request" });
+        }
+      });
+      return;
+    }
+    if (auditMatch && req.method === "GET") {
       const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 100)));
       const guild = getGuild(auditMatch[1]);
       const rows = Array.isArray(guild.audit) ? guild.audit : [];
