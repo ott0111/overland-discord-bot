@@ -21,8 +21,13 @@ async function main() {
   console.log("[Import] Source: " + DATA_FILE);
   console.log("[Import] Guild records found: " + entries.length);
 
-  await runMigrations();
   const pool = getPool();
+  if (apply) await runMigrations();
+  const [tables] = await pool.execute("SELECT TABLE_NAME FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?", ["guild_state"]);
+  if (!tables.length) {
+    console.log("[Import] Destination table does not exist. Dry-run made no changes; rerun with --apply to create the schema and import.");
+    return;
+  }
   let existing = 0;
   for (const [guildId] of entries) {
     const [rows] = await pool.execute("SELECT guild_id FROM guild_state WHERE guild_id = ?", [guildId]);
