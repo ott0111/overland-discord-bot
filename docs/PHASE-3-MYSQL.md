@@ -52,3 +52,18 @@ To return the bot to JSON storage, set OVERLAND_STORAGE=json and restart. The or
 ## Production safety
 
 Do not run the importer against the live CoalByte database until the database password has been rotated and the import has been reviewed against a backup. No production database connection or write is performed by this branch.
+
+## Team management cutover
+
+The normalized MySQL team repository now backs the dashboard Team Management API:
+
+- Listing, adding, updating, and removing staff records run through the Core API.
+- The dashboard route no longer imports or queries Prisma for team records.
+- Core API rechecks the acting staff member and required permission for each operation.
+- Owner appointment and last-active-Owner protections are enforced inside MySQL transactions.
+- Team changes are recorded in the existing audit stream.
+- Migration 0003 adds the `team.view` permission for Owner, Executive, and Administration groups.
+
+This is a first domain cutover, not a full dashboard migration. Achievements, campaigns, configuration, leaderboards, members, moderation, permissions, points, referrals, rewards, roles, tickets, and X routes still contain Prisma-backed operations and must be migrated before PostgreSQL can be removed.
+
+The team API requires `OVERLAND_STORAGE=mysql`. It is not enabled against JSON mode. Validate it against a disposable MySQL database before production use.
