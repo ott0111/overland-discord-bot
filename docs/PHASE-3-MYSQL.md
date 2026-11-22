@@ -67,3 +67,17 @@ The normalized MySQL team repository now backs the dashboard Team Management API
 This is a first domain cutover, not a full dashboard migration. Achievements, campaigns, configuration, leaderboards, members, moderation, permissions, points, referrals, rewards, roles, tickets, and X routes still contain Prisma-backed operations and must be migrated before PostgreSQL can be removed.
 
 The team API requires `OVERLAND_STORAGE=mysql`. It is not enabled against JSON mode. Validate it against a disposable MySQL database before production use.
+
+## Member and economy cutover
+
+The dashboard's member and economy read paths now use Core API and normalized MySQL repositories:
+
+- Member directory search and pagination.
+- Member detail records, including normalized roles, achievements, point transactions, daily check-ins, and referral relationships.
+- Economy transaction history and point-value/daily-limit settings. Imported guild settings remain the fallback source for those settings until dedicated configuration migration is complete.
+- Staff balance adjustments for Overpoints and Overcredits, performed in a database transaction with non-negative balance validation and a normalized audit-log entry.
+- Lifetime, weekly, and monthly leaderboards.
+
+The dashboard API routes for `members`, `members/[id]`, `points`, and `leaderboards` no longer query Prisma directly. Core API validates the acting staff member and required permission before accessing the MySQL repository.
+
+This does not migrate the bot's own economy service yet. Existing Discord commands and background operations that still use the JSON-compatible store must be moved to normalized repositories separately. The remaining dashboard routes also still need migration.
