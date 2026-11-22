@@ -1,6 +1,6 @@
 # Overland Core — Discord Command Architecture
 
-**Status:** Stage 2C proposal for approval  
+**Status:** Stage 2C approved  
 **Baseline:** Existing command modules on `phase-3-core-api-mysql`  
 **Scope:** Discord command grouping, user-facing command navigation, staff/member separation, and migration rules. This document does not implement or register a new command structure.
 
@@ -143,4 +143,4 @@ After initial setup, staff can update one feature without re-running the entire 
 - No existing useful functionality is discarded.
 - Command registration limits and migration compatibility are accounted for.
 
-**Decision boundary:** This document proposes the target command architecture. It does not change command files, register commands with Discord, or authorize production deployment. Stage 2C can be marked complete once the product owner approves this structure.
+**Decision boundary:** This document proposes the target command architecture. It does not change command files, register commands with Discord, or authorize production deployment. Stage 2C is approved by the product owner. The command architecture is accepted as the target for implementation.
