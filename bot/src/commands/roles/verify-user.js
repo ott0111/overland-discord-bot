@@ -9,7 +9,7 @@ export default command(
     .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
     .addStringOption((o) => o.setName("reason").setDescription("Reason")),
   async (i) => {
-    requirePerm(i, "roles.manage");
+    await requirePermAsync(i, "roles.manage");
     const user = i.options.getUser("member", true);
     if (process.env.OVERLAND_STORAGE === "mysql") await completeMemberVerification(i.guildId, user);
     else {
