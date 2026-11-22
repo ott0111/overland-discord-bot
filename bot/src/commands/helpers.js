@@ -3,6 +3,7 @@ import { hasPermission } from "../services/permissions.js";
 import { getGuild, saveStore } from "../store.js";
 import { findStaffMember } from "../db/repositories/staff.js";
 import { checkProgression, syncDiscordRole } from "../services/roles.js";
+import { checkAchievements } from "../services/achievements.js";
 
 export const BRAND = { primary: 0x0D8F72, dark: 0x10231F, muted: 0x9BAFA8, danger: 0xD94F61, warning: 0xD9A441, success: 0x168A68 };
 
@@ -35,6 +36,7 @@ export async function requirePermAsync(i, key) {
   return requirePerm(i, key);
 }
 export async function syncMemberProgression(i, user) {
+  await checkAchievements(i.guildId, user);
   const earned = await checkProgression(i.guildId, user);
   if (earned.length) {
     const member = await i.guild.members.fetch(user.id).catch(() => null);
