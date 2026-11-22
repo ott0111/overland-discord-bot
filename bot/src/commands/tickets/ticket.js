@@ -35,8 +35,8 @@ async function openTicket(i) {
     ownerTag: i.user.tag, category, status: "OPEN", claimedBy: null, createdAt: new Date().toISOString(),
     closedAt: null, lastActivityAt: new Date().toISOString(), feedback: null
   };
-  g.tickets.unshift(record);
-  await saveStore();
+  if (process.env.OVERLAND_STORAGE === "mysql") await createTicketRecord(i.guildId, { id: record.id, category, channelId: channel.id, ownerId: i.user.id });
+  else { g.tickets.unshift(record); await saveStore(); }
   const panel = embed("OVERLAND SUPPORT  /  " + category.toUpperCase(),
     "Your private support room is ready. Please provide the context our team needs to help you.\n\n" +
     "**Ticket reference:** " + record.id + "\n**Opened by:** " + i.user + "\n**Category:** " +
@@ -58,13 +58,13 @@ async function closeTicket(i) {
   const staff = i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
   if (ownerId !== i.user.id && !staff) throw new Error("Only the ticket creator or authorized staff can close this ticket.");
   if (channel.topic.startsWith("overland-ticket-closed:")) return reply(i, "Ticket already closed", "This ticket has already been archived.");
-  const record = ticketRecord(g, channel.id);
-  if (record) { record.status = "CLOSED"; record.closedAt = new Date().toISOString(); record.closedBy = i.user.id; }
+  const record = process.env.OVERLAND_STORAGE === "mysql" ? await getTicketByChannel(i.guildId, channel.id) : ticketRecord(g, channel.id);
+  if (record) { if (process.env.OVERLAND_STORAGE === "mysql") await updateTicket(i.guildId, record.id, "close", { actorId: i.user.id }); else { record.status = "CLOSED"; record.closedAt = new Date().toISOString(); record.closedBy = i.user.id; } }
   await channel.permissionOverwrites.edit(ownerId, { ViewChannel: true, SendMessages: false, ReadMessageHistory: true }).catch(() => {});
   await channel.setTopic("overland-ticket-closed:" + ownerId).catch(() => {});
   await channel.setName(("closed-" + channel.name).slice(0, 95)).catch(() => {});
   if (g.settings.ticketArchiveCategoryId) await channel.setParent(g.settings.ticketArchiveCategoryId).catch(() => {});
-  await saveStore();
+  if (process.env.OVERLAND_STORAGE !== "mysql") await saveStore();
   const feedbackRow = new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n => new ButtonBuilder().setCustomId("overland:ticket:feedback:" + n).setLabel(n + " / 5").setStyle(n >= 4 ? ButtonStyle.Success : ButtonStyle.Secondary)));
   await channel.send({ embeds: [successEmbed("TICKET ARCHIVED", "This ticket has been closed by " + i.user + ". Staff can still review its history.")] }).catch(() => {});
   await channel.send({ embeds: [embed("HOW DID WE DO?", "If you opened this ticket, rate your support experience below. Your feedback helps improve Overland support.")], components: [feedbackRow] }).catch(() => {});
@@ -77,8 +77,8 @@ async function claimTicket(i) {
   const g = getGuild(i.guildId), record = process.env.OVERLAND_STORAGE === "mysql" ? await getTicketByChannel(i.guildId, i.channelId) : ticketRecord(g, i.channelId);
   if (!record) throw new Error("Ticket record not found. Ask an administrator to review the ticket setup.");
   if (record.claimedBy && record.claimedBy !== i.user.id) throw new Error("This ticket is already claimed by <@" + record.claimedBy + ">.");
-  record.claimedBy = i.user.id; record.claimedAt = new Date().toISOString();
-  await saveStore();
+  if (process.env.OVERLAND_STORAGE === "mysql") await updateTicket(i.guildId, record.id, "claim", { actorId: i.user.id });
+  else { record.claimedBy = i.user.id; record.claimedAt = new Date().toISOString(); await saveStore(); }
   await i.channel.send({ embeds: [successEmbed("TICKET CLAIMED", "This request is now being handled by " + i.user + ".")] });
   return reply(i, "Ticket claimed", "You are now assigned to this ticket.");
 }
