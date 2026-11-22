@@ -119,3 +119,19 @@ export async function reviewRewardClaim(guildId,claimId,status,actorId){
   await conn.commit();return {id:claimId,status,reviewedBy:actorId};
  }catch(error){await conn.rollback();throw error;}finally{conn.release();}
 }
+
+export async function createTicketRecord(guildId,{id,category,channelId,ownerId}){
+ const pool=getPool(),conn=await pool.getConnection();
+ try{
+  await conn.beginTransaction();
+  const member=await resolveMember(conn,guildId,ownerId);
+  await conn.execute("INSERT INTO tickets (id,guild_id,category,channel_id,member_id,status) VALUES (?,?,?,?,?,'OPEN')",[id,guildId,category,channelId,member.id]);
+  await conn.commit();
+  const [rows]=await pool.execute(TICKET_SELECT+" WHERE t.guild_id=? AND t.id=? LIMIT 1",[guildId,id]);
+  return mapTicket(rows[0]);
+ }catch(error){await conn.rollback();throw error;}finally{conn.release();}
+}
+export async function getTicketByChannel(guildId,channelId){
+ const [rows]=await getPool().execute(TICKET_SELECT+" WHERE t.guild_id=? AND t.channel_id=? LIMIT 1",[guildId,channelId]);
+ return rows.length?mapTicket(rows[0]):null;
+}
