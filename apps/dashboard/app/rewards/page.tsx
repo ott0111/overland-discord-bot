@@ -98,7 +98,6 @@ export default function RewardsPage() {
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Btn kind="primary" onClick={() => decideClaim(c.id, "APPROVED")}>Approve</Btn>
-                      <Btn onClick={() => decideClaim(c.id, "FULFILLED")}>Fulfill</Btn>
                       <Btn kind="danger" onClick={() => decideClaim(c.id, "REJECTED")}>Reject</Btn>
                     </div>
                   </td>
