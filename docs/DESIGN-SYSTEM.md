@@ -1,6 +1,6 @@
 # Overland Core — Visual Design System
 
-**Status:** Stage 2E proposal for approval  
+**Status:** Stage 2E approved  
 **Baseline:** Existing dashboard styles and shared UI primitives on phase-3-core-api-mysql  
 **Scope:** Visual language, color tokens, typography, spacing, components, interaction states, responsive behavior, and accessibility. This document is a design specification only. It does not modify the live dashboard or Discord embeds.
 
@@ -189,6 +189,6 @@ Before visual implementation:
 6. Verify keyboard navigation, contrast, responsive breakpoints, loading/empty/error states, and reduced motion.
 7. Run dashboard typecheck and production build; add visual regression coverage for the shared shell and critical workflows.
 
-Stage 2E is complete when the visual direction, token set, component standards, responsive rules, and accessibility expectations are approved.
+Stage 2E is approved by the product owner. The visual direction, token set, component standards, responsive rules, and accessibility expectations are accepted as the target for implementation.
 
 **Decision boundary:** This document is the design-system proposal only. It does not modify the live UI, change the dashboard information architecture, or authorize a production deployment.
