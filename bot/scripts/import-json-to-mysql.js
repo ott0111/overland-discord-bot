@@ -142,6 +142,60 @@ async function importGuild(pool, guildId, guildData) {
     );
   }
 
+  const achievementDefaults = [
+    ["first-checkin", "First Steps", "Complete your first daily check-in", "CHECKIN", 1, 0, 0],
+    ["streak-7", "Consistent", "Reach a 7 day check-in streak", "STREAK", 7, 0, 0],
+    ["points-1000", "Contributor", "Earn 1,000 Overpoints", "POINTS", 1000, 0, 0],
+    ["referral-5", "Connector", "Refer 5 verified members", "REFERRAL", 5, 0, 0],
+    ["creator", "Creator", "Get approved for 3 creative submissions", "CREATOR", 3, 0, 0],
+    ["first-verification", "First Verification", "Complete Discord verification", "VERIFICATION", 1, 10, 0],
+    ["first-contribution", "First Contribution", "Get a contribution approved", "CONTRIBUTION", 1, 20, 5],
+    ["first-referral", "First Referral", "Bring in a verified referral", "REFERRAL", 1, 15, 5],
+    ["first-social", "First Social Submission", "Get a social submission approved", "SOCIAL", 1, 15, 5],
+    ["streak-30", "Thirty Day Streak", "Check in 30 days in a row", "STREAK", 30, 100, 25],
+  ];
+  const achievementIds = new Map();
+  const ensureAchievement = async (key, name, description, kind = "CUSTOM", threshold = 1, overpointsReward = 0, overcreditsReward = 0) => {
+    const safeKey = String(key || "").toLowerCase().slice(0, 100);
+    if (!safeKey) return null;
+    if (achievementIds.has(safeKey)) return achievementIds.get(safeKey);
+    const id = stableId("achievement", guildId + ":" + safeKey);
+    await pool.execute(
+      "INSERT IGNORE INTO achievements (id, guild_id, achievement_key, name, description, kind, threshold, overpoints_reward, overcredits_reward, active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, TRUE)",
+      [id, guildId, safeKey, String(name || safeKey).slice(0, 190), String(description || "").slice(0, 2000), String(kind || "CUSTOM").slice(0, 40), Math.max(1, Number(threshold) || 1), Math.max(0, Number(overpointsReward) || 0), Math.max(0, Number(overcreditsReward) || 0)],
+    );
+    const [rows] = await pool.execute("SELECT id FROM achievements WHERE guild_id = ? AND achievement_key = ? LIMIT 1", [guildId, safeKey]);
+    const actualId = rows[0]?.id || id;
+    achievementIds.set(safeKey, actualId);
+    return actualId;
+  };
+  for (const [key, name, description, kind, threshold, overpointsReward, overcreditsReward] of achievementDefaults) {
+    await ensureAchievement(key, name, description, kind, threshold, overpointsReward, overcreditsReward);
+  }
+  for (const item of Array.isArray(guildData.achievements) ? guildData.achievements : []) {
+    const key = String(item.key || item.id || "").slice(0, 100);
+    const memberId = memberIds.get(String(item.memberId || ""));
+    if (!key || !memberId) continue;
+    const achievementId = await ensureAchievement(key, item.name || key, item.description || "Imported Overland achievement");
+    await pool.execute(
+      "INSERT IGNORE INTO member_achievements (id, guild_id, member_id, achievement_id, awarded_at) VALUES (?, ?, ?, ?, ?)",
+      [stableId("member-achievement", guildId + ":" + memberId + ":" + key), guildId, memberId, achievementId, asDate(item.at || item.awardedAt) || new Date()],
+    );
+  }
+  for (const [discordId, member] of members) {
+    const memberId = memberIds.get(String(member?.id || discordId));
+    if (!memberId) continue;
+    for (const keyValue of Array.isArray(member.achievements) ? member.achievements : []) {
+      const key = String(keyValue).slice(0, 100);
+      const achievementId = await ensureAchievement(key, key.replace(/-/g, " "), "Imported member achievement");
+      if (!achievementId) continue;
+      await pool.execute(
+        "INSERT IGNORE INTO member_achievements (id, guild_id, member_id, achievement_id, awarded_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP(3))",
+        [stableId("member-achievement", guildId + ":" + memberId + ":" + key), guildId, memberId, achievementId],
+      );
+    }
+  }
+
   for (const tx of Array.isArray(guildData.transactions) ? guildData.transactions : []) {
     const discordId = String(tx.memberId || "");
     const memberId = memberIds.get(discordId);
@@ -295,7 +349,7 @@ async function main() {
     await importGuild(pool, guildId, guildData);
   }
   console.log("[Import] Compatibility rows inserted: " + inserted + "; existing rows skipped: " + skipped + ".");
-  console.log("[Import] Normalized identity, balances, role catalogue/mappings/assignments/history, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
+  console.log("[Import] Normalized identity, balances, roles, achievements, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
   console.log("[Import] The original JSON file was not changed or deleted.");
 }
 
