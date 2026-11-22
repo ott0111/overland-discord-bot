@@ -1,5 +1,5 @@
 import { ChannelType, EmbedBuilder, SlashCommandBuilder } from "discord.js";
-import { command, requirePerm, reply, BRAND } from "../helpers.js";
+import { command, requirePermAsync, reply, BRAND } from "../helpers.js";
 import { listRoles, getRoleGuideConfig, saveRoleGuideConfig } from "../../db/repositories/roles.js";
 
 function clipped(value, max = 1000) {
@@ -76,7 +76,7 @@ export default command(
     .setDescription("Publish or refresh the public Overland roles and points guide")
     .addChannelOption((option) => option.setName("channel").setDescription("Channel for the public guide").addChannelTypes(ChannelType.GuildText).setRequired(true)),
   async (i) => {
-    requirePerm(i, "roles.manage");
+    await requirePermAsync(i, "roles.manage");
     if (process.env.OVERLAND_STORAGE !== "mysql") throw new Error("The role guide requires MySQL mode. Do not switch production storage until migration is approved.");
     await i.deferReply({ ephemeral: true });
     const channel = i.options.getChannel("channel", true);
