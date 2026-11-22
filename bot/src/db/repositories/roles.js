@@ -381,3 +381,12 @@ export async function setMemberSuspicious(guildId, user, suspicious) {
     connection.release();
   }
 }
+
+export async function listMemberRoleHistory(guildId, discordId, limit = 10) {
+  const safeLimit = Math.min(50, Math.max(1, Number(limit) || 10));
+  const [rows] = await getPool().execute(
+    "SELECT rh.id, rh.action, rh.reason, rh.actor_id AS actorId, rh.created_at AS at, r.name AS role FROM role_history rh INNER JOIN discord_members dm ON dm.id = rh.member_id INNER JOIN users u ON u.id = dm.user_id LEFT JOIN roles r ON r.id = rh.role_id WHERE rh.guild_id = ? AND u.discord_id = ? ORDER BY rh.created_at DESC LIMIT ?",
+    [guildId, discordId, safeLimit],
+  );
+  return rows;
+}
