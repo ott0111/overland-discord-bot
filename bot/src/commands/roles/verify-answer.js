@@ -16,7 +16,7 @@ export default command(
     const profile = state?.profile || {};
     const rulesAcceptedAt = profile.rulesAcceptedAt || legacyMember.rulesAcceptedAt;
     const suspicious = state ? state.isSuspicious : Boolean(legacyMember.suspicious);
-    const challenge = profile.verificationChallenge || legacyMember.verification;
+    const challenge = mysqlMode ? profile.verificationChallenge : legacyMember.verification;
     if (!rulesAcceptedAt) throw new Error("Accept the server rules with /rules before verifying.");
     if (guild.blacklist.some((x) => x.userId === i.user.id)) throw new Error("Your account is on the Overland participation blacklist.");
     if (suspicious) throw new Error("Your account was flagged by anti-raid protection. Contact staff.");
