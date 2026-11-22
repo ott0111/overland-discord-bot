@@ -30,15 +30,14 @@ const SELECT_ROLES = `
     r.is_internal AS isInternal, r.is_self_assignable AS isSelfAssignable,
     r.discord_role_id AS discordRoleId, r.requires_role_id AS requiresRoleId,
     r.min_overpoints AS minOverpoints, r.sort_order AS sortOrder, r.config,
-    required.name AS requiresRoleName, COUNT(mr.member_id) AS memberCount
+    required.name AS requiresRoleName, (SELECT COUNT(*) FROM member_roles mr WHERE mr.role_id = r.id) AS memberCount
   FROM roles r
   LEFT JOIN roles required ON required.id = r.requires_role_id
-  LEFT JOIN member_roles mr ON mr.role_id = r.id
 `;
 
 export async function listRoles(guildId) {
   const [rows] = await getPool().execute(
-    SELECT_ROLES + " WHERE r.guild_id = ? GROUP BY r.id ORDER BY r.sort_order ASC, r.name ASC",
+    SELECT_ROLES + " WHERE r.guild_id = ? ORDER BY r.sort_order ASC, r.name ASC",
     [guildId],
   );
   return rows.map(mapRole);
@@ -51,11 +50,12 @@ export async function createRole(guildId, input) {
   if (!name) throw Object.assign(new Error("Role name is required"), { status: 400 });
   const [existing] = await pool.execute("SELECT id FROM roles WHERE guild_id = ? AND LOWER(name) = LOWER(?) LIMIT 1", [guildId, name]);
   if (existing.length) throw Object.assign(new Error("A role with that name already exists"), { status: 409 });
+  const [orderRows] = await pool.execute("SELECT COALESCE(MAX(sort_order), -1) + 1 AS nextOrder FROM roles WHERE guild_id = ?", [guildId]);
   await pool.execute(
-    "INSERT INTO roles (id, guild_id, name, description, is_internal, is_self_assignable, discord_role_id, sort_order, config) VALUES (?, ?, ?, ?, FALSE, ?, ?, COALESCE((SELECT next_order FROM (SELECT COALESCE(MAX(sort_order), -1) + 1 AS next_order FROM roles WHERE guild_id = ?) x), 0), ?)",
-    [id, guildId, name, input.description ? String(input.description).slice(0, 2000) : null, Boolean(input.isSelfAssignable), input.discordRoleId || null, guildId, JSON.stringify(input.config || {})],
+    "INSERT INTO roles (id, guild_id, name, description, is_internal, is_self_assignable, discord_role_id, sort_order, config) VALUES (?, ?, ?, ?, FALSE, ?, ?, ?, ?)",
+    [id, guildId, name, input.description ? String(input.description).slice(0, 2000) : null, Boolean(input.isSelfAssignable), input.discordRoleId || null, Number(orderRows[0]?.nextOrder || 0), JSON.stringify(input.config || {})],
   );
-  const [rows] = await pool.execute(SELECT_ROLES + " WHERE r.guild_id = ? AND r.id = ? GROUP BY r.id LIMIT 1", [guildId, id]);
+  const [rows] = await pool.execute(SELECT_ROLES + " WHERE r.guild_id = ? AND r.id = ? LIMIT 1", [guildId, id]);
   return mapRole(rows[0]);
 }
 
@@ -91,6 +91,6 @@ export async function updateRole(guildId, id, input) {
   }
   if (input.config !== undefined) add("config", JSON.stringify(nextConfig));
   if (fields.length) await pool.execute("UPDATE roles SET " + fields.join(", ") + " WHERE guild_id = ? AND id = ?", [...values, guildId, id]);
-  const [rows] = await pool.execute(SELECT_ROLES + " WHERE r.guild_id = ? AND r.id = ? GROUP BY r.id LIMIT 1", [guildId, id]);
+  const [rows] = await pool.execute(SELECT_ROLES + " WHERE r.guild_id = ? AND r.id = ? LIMIT 1", [guildId, id]);
   return mapRole(rows[0]);
 }
