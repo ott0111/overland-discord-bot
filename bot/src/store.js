@@ -107,7 +107,7 @@ export function getMember(guildId, user) {
 export function getDatabase() { return database; }
 
 export function saveStore() {
-  saveQueue = saveQueue.then(async () => {
+  saveQueue = saveQueue.catch(() => {}).then(async () => {
     if (process.env.OVERLAND_STORAGE === "mysql") {
       const pool = getPool();
       for (const [guildId, guildData] of Object.entries(database.guilds)) {
