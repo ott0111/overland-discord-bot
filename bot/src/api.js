@@ -151,6 +151,7 @@ export function startCoreApi() {
     const teamMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/team$/);
     if (teamMatch) {
       const guildId = teamMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Team management requires MySQL storage to be enabled." });
       try {
         if (req.method === "GET") {
           await requireTeamActor(guildId, url.searchParams.get("actorId"), "team.view");
