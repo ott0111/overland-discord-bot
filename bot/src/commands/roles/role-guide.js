@@ -12,6 +12,13 @@ function requirementLines(role) {
   if (role.minOverpoints !== null) lines.push("**Minimum:** " + Number(role.minOverpoints).toLocaleString() + " Overpoints");
   if (role.requiresRole?.name) lines.push("**Prerequisite:** " + role.requiresRole.name);
   const config = role.config || {};
+  if (config.requireVerified) lines.push("**Condition:** complete Overland verification.");
+  if (config.requireXFollow) lines.push("**Condition:** X follow status must be verified.");
+  const progression = config.progression || {};
+  if (progression.kind === "approved_submission_count") {
+    const categories = Array.isArray(progression.categories) ? progression.categories.join(", ") : "configured submission categories";
+    lines.push("**Progression:** " + Number(progression.minimum || 0) + " approved submissions across: " + clipped(categories, 250) + ".");
+  }
   if (config.guideInstructions) lines.push(clipped(config.guideInstructions, 700));
   if (Array.isArray(config.requirements)) {
     for (const item of config.requirements.slice(0, 5)) {
