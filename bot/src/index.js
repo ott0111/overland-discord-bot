@@ -11,6 +11,7 @@ import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
 import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
 import { getMemberVerification, acceptMemberRules, saveVerificationChallenge } from "./db/repositories/roles.js";
+import { bootstrapOwner } from "./db/repositories/team.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -191,7 +192,7 @@ client.once(Events.ClientReady,async ready=>{
   await syncCommands(appId);
  }catch(e){console.error("[Commands] FATAL: "+e.message);console.error("[Commands] Exiting because slash commands could not be registered. Fix the settings and restart.");process.exit(1);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
- const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}await saveStore();}
+ const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){if(process.env.OVERLAND_STORAGE==="mysql")await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");else{const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}}if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();}
  console.log("[Overland] Loaded "+commands.size+" modular commands.");
 });
 const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
