@@ -7,6 +7,7 @@ import {checkProgression,syncDiscordRole} from "./services/roles.js";
 import {recordJoin,processReferralMilestones} from "./services/referrals.js";
 import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
+import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
 
 const token=process.env.DISCORD_TOKEN;
@@ -188,7 +189,7 @@ client.once(Events.ClientReady,async ready=>{
 const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
 const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);
-async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();process.exit(0);}
+async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();await closePool();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
 await ownerBootstrap();
