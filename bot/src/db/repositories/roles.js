@@ -157,26 +157,18 @@ export async function grantMemberRole(guildId, user, roleName, actorId, reason =
       );
       if (!prerequisite.length) throw new Error("This role requires its prerequisite role first.");
     }
-    await connection.execute(
+    const [inserted] = await connection.execute(
       "INSERT IGNORE INTO member_roles (id, guild_id, member_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))",
       [crypto.randomUUID(), guildId, member.id, role.id, actorId || null],
     );
-    const [assigned] = await connection.execute(
-      "SELECT id FROM member_roles WHERE member_id = ? AND role_id = ? LIMIT 1",
-      [member.id, role.id],
-    );
-    const [history] = await connection.execute(
-      "SELECT id FROM role_history WHERE guild_id = ? AND member_id = ? AND role_id = ? AND action = 'GRANTED' ORDER BY created_at DESC LIMIT 1",
-      [guildId, member.id, role.id],
-    );
-    if (!history.length) {
+    if (inserted.affectedRows) {
       await connection.execute(
         "INSERT INTO role_history (id, guild_id, member_id, role_id, action, actor_id, reason) VALUES (?, ?, ?, ?, 'GRANTED', ?, ?)",
         [crypto.randomUUID(), guildId, member.id, role.id, actorId || "SYSTEM", String(reason).slice(0, 1000)],
       );
     }
     await connection.commit();
-    return Boolean(assigned.length);
+    return inserted.affectedRows > 0;
   } catch (error) {
     await connection.rollback();
     throw error;
