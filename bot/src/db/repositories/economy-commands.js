@@ -89,7 +89,11 @@ export async function dailyCheckinNormalized(guildId,user) {
     if(previous===today) throw new Error("You have already checked in today.");
     const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10),streak=previous===yesterday?Number(prior[0].streak)+1:1;
     const config=await settings(conn,guildId),values=config.pointValues||{};
-    const points=Number(values.daily??5),bonus=streak%7===0?Number(values.streakBonus??10):0;\n    if(!Number.isSafeInteger(points)||points<0||!Number.isSafeInteger(bonus)||bonus<0) throw new Error('Daily reward settings are invalid.');\n    const limits=config.dailyLimits||{};\n    for(const [currency,amount] of [['OVERPOINTS',points],['OVERCREDITS',bonus]]){\n      const limit=Number(limits[currency]);\n      if(amount>0&&Number.isFinite(limit)){const [used]=await conn.execute(\"SELECT COALESCE(SUM(amount),0) AS total FROM point_transactions WHERE guild_id=? AND member_id=? AND currency=? AND amount>0 AND created_at>=UTC_DATE()\",[guildId,member.id,currency]);if(Number(used[0].total)+amount>limit)throw new Error(\"Daily \"+currency+\" earning limit reached.\");}\n    }
+    const points=Number(values.daily??5),bonus=streak%7===0?Number(values.streakBonus??10):0;
+    if(!Number.isSafeInteger(points)||points<0||!Number.isSafeInteger(bonus)||bonus<0) throw new Error('Daily reward settings are invalid.');
+    const limits=config.dailyLimits||{};
+    for(const [currency,amount] of [['OVERPOINTS',points],['OVERCREDITS',bonus]]){\n      const limit=Number(limits[currency]);\n      if(amount>0&&Number.isFinite(limit)){const [used]=await conn.execute(\"SELECT COALESCE(SUM(amount),0) AS total FROM point_transactions WHERE guild_id=? AND member_id=? AND currency=? AND amount>0 AND created_at>=UTC_DATE()\",[guildId,member.id,currency]);if(Number(used[0].total)+amount>limit)throw new Error(\"Daily \"+currency+\" earning limit reached.\");}
+    }
     for(const [currency,amount,category,source,key] of [
       ["OVERPOINTS",points,"community","DAILY_CHECKIN","daily:"+member.id+":"+today],
       ["OVERCREDITS",bonus,"streak","STREAK_BONUS","streak:"+member.id+":"+today],
