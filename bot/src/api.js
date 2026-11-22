@@ -4,6 +4,7 @@ import { timingSafeEqual } from "node:crypto";
 import { getGuild, saveStore } from "./store.js";
 import { databaseHealth } from "./db/health.js";
 import { findStaffMember } from "./db/repositories/staff.js";
+import { listTeam, addTeamMember, updateTeamMember, removeTeamMember } from "./db/repositories/team.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -99,6 +100,34 @@ async function staffRecord(guildId, discordId) {
   };
 }
 
+
+async function readJsonBody(req, maxBytes = 20000) {
+  let body = "";
+  for await (const chunk of req) {
+    body += chunk.toString();
+    if (body.length > maxBytes) throw Object.assign(new Error("Request body too large"), { status: 413 });
+  }
+  try { return JSON.parse(body || "{}"); }
+  catch { throw Object.assign(new Error("Invalid JSON body"), { status: 400 }); }
+}
+
+async function requireTeamActor(guildId, actorId, permission) {
+  if (!/^\d{17,20}$/.test(String(actorId || ""))) throw Object.assign(new Error("A valid staff actor ID is required"), { status: 401 });
+  const staff = await staffRecord(guildId, actorId);
+  if (!staff.group) throw Object.assign(new Error("Active staff access required"), { status: 403 });
+  if (staff.group !== "Owner" && !staff.permissions.includes(permission)) {
+    throw Object.assign(new Error("Missing permission: " + permission), { status: 403 });
+  }
+  return staff;
+}
+
+async function appendAudit(guildId, actorId, action, entityId, details = {}) {
+  const guild = getGuild(guildId);
+  guild.audit.unshift({ id: crypto.randomUUID(), actorId, action, entityType: "InternalTeamMember", entityId, details, createdAt: new Date().toISOString() });
+  if (guild.audit.length > 5000) guild.audit.length = 5000;
+  await saveStore();
+}
+
 export function startCoreApi() {
   if (!process.env.OVERLAND_API_SECRET) {
     console.warn("[Core API] Disabled: set OVERLAND_API_SECRET to enable the dashboard bridge.");
@@ -108,7 +137,7 @@ export function startCoreApi() {
   const host = process.env.OVERLAND_API_HOST || "127.0.0.1";
   const server = http.createServer(async (req, res) => {
     if (!authorized(req)) return send(res, 401, { error: "Unauthorized" });
-    if (!["GET", "POST"].includes(req.method || "")) return send(res, 405, { error: "Method not allowed" });
+    if (!["GET", "POST", "PATCH", "DELETE"].includes(req.method || "")) return send(res, 405, { error: "Method not allowed" });
     const url = new URL(req.url || "/", "http://localhost");
     if (url.pathname === "/health") {
       const storage = process.env.OVERLAND_STORAGE === "mysql" ? await databaseHealth() : { status: "ok", driver: "json" };
@@ -118,6 +147,48 @@ export function startCoreApi() {
     if (staffMatch) return send(res, 200, await staffRecord(staffMatch[1], staffMatch[2]));
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
+
+    const teamMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/team$/);
+    if (teamMatch) {
+      const guildId = teamMatch[1];
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "team.view");
+          return send(res, 200, await listTeam(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "team.manage");
+          if (!/^\d{17,20}$/.test(String(input.discordId || "")) || !String(input.username || "").trim() ||
+              !String(input.jobTitle || "").trim() || !String(input.department || "").trim() || !input.groupName) {
+            return send(res, 400, { error: "A valid Discord ID, username, job title, department and group are required" });
+          }
+          if (input.groupName === "Owner" && actor.group !== "Owner") return send(res, 403, { error: "Only an existing Owner can appoint another Owner" });
+          const record = await addTeamMember(guildId, input);
+          await appendAudit(guildId, actor.discordId, "team.add", record.id, { username: record.username, groupName: input.groupName });
+          return send(res, 201, record);
+        }
+        if (req.method === "PATCH") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "team.manage");
+          if (!input.id) return send(res, 400, { error: "id is required" });
+          const record = await updateTeamMember(guildId, String(input.id), input, actor.group === "Owner");
+          await appendAudit(guildId, actor.discordId, "team.update", record.id, { username: record.username });
+          return send(res, 200, record);
+        }
+        if (req.method === "DELETE") {
+          const actor = await requireTeamActor(guildId, url.searchParams.get("actorId"), "team.manage");
+          const id = url.searchParams.get("id");
+          if (!id) return send(res, 400, { error: "id is required" });
+          const result = await removeTeamMember(guildId, id, actor.group === "Owner");
+          await appendAudit(guildId, actor.discordId, "team.remove", id, { status: "REMOVED" });
+          return send(res, 200, result);
+        }
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Team management service unavailable" });
+      }
+    }
+
     const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
     if (auditMatch && req.method === "POST") {
       let body = "";
