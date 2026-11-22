@@ -1,6 +1,7 @@
 import { EmbedBuilder, MessageFlags } from "discord.js";
 import { hasPermission } from "../services/permissions.js";
 import { getGuild, saveStore } from "../store.js";
+import { findStaffMember } from "../db/repositories/staff.js";
 
 export const BRAND = { primary: 0x0D8F72, dark: 0x10231F, muted: 0x9BAFA8, danger: 0xD94F61, warning: 0xD9A441, success: 0x168A68 };
 
@@ -22,6 +23,15 @@ export async function reply(i, title, description, ephemeral = true) {
 export function requirePerm(i, key) {
   if (hasPermission(i.guildId, i.user.id, key)) return;
   throw new Error("Missing internal permission: " + key);
+}
+
+export async function requirePermAsync(i, key) {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    const staff = await findStaffMember(i.guildId, i.user.id);
+    if (staff?.group === "Owner" || staff?.permissions?.includes(key)) return staff;
+    throw new Error("Missing internal permission: " + key);
+  }
+  return requirePerm(i, key);
 }
 export function requireDiscordPerm(i, permission) {
   if (!i.memberPermissions?.has(permission)) throw new Error("You do not have the required Discord permission.");
