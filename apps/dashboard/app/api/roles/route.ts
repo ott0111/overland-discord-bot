@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 function guildOrError() {
   const guildId = configuredGuildId();
-  if (!/^\\d{17,20}$/.test(guildId)) {
+  if (!/^\d{17,20}$/.test(guildId)) {
     return { guildId: "", error: NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 }) };
   }
   return { guildId, error: null };
