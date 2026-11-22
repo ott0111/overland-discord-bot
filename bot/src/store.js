@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { getPool } from "./db/mysql.js";
+import { runMigrations } from "./db/migrate.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const DATA_DIR = path.join(ROOT, "data");
@@ -33,6 +35,19 @@ let database = { version: 1, guilds: {} };
 let saveQueue = Promise.resolve();
 
 export async function loadStore() {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    await runMigrations();
+    const [rows] = await getPool().query("SELECT guild_id, data FROM guild_state");
+    database = { version: 1, guilds: {} };
+    for (const row of rows) {
+      const value = typeof row.data === "string" ? JSON.parse(row.data) : row.data;
+      database.guilds[row.guild_id] = value;
+    }
+    for (const guild of Object.values(database.guilds)) normalizeGuild(guild);
+    console.log("[Store] Loaded " + rows.length + " guild record(s) from MySQL.");
+    return database;
+  }
+
   await fs.mkdir(DATA_DIR, { recursive: true });
   try {
     const raw = await fs.readFile(DATA_FILE, "utf8");
@@ -93,6 +108,16 @@ export function getDatabase() { return database; }
 
 export function saveStore() {
   saveQueue = saveQueue.then(async () => {
+    if (process.env.OVERLAND_STORAGE === "mysql") {
+      const pool = getPool();
+      for (const [guildId, guildData] of Object.entries(database.guilds)) {
+        await pool.execute(
+          "INSERT INTO guild_state (guild_id, data, revision) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE data = VALUES(data), revision = revision + 1",
+          [guildId, JSON.stringify(guildData)],
+        );
+      }
+      return;
+    }
     await fs.mkdir(DATA_DIR, { recursive: true });
     const temp = DATA_FILE + ".tmp";
     await fs.writeFile(temp, JSON.stringify(database, null, 2), "utf8");
