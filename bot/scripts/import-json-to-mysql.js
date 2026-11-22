@@ -162,6 +162,34 @@ async function importGuild(pool, guildId, guildData) {
       );
     }
   }
+  for (const reward of Array.isArray(guildData.rewards) ? guildData.rewards : []) {
+    const rewardId = String(reward.id || stableId("reward", guildId + ":" + JSON.stringify(reward))).slice(0,64);
+    await pool.execute(
+      "INSERT IGNORE INTO rewards (id,guild_id,name,description,image_url,cost_overcredits,stock,eligibility,active,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      [rewardId,guildId,String(reward.name || "Untitled reward").slice(0,190),String(reward.description || ""),reward.imageUrl || null,Math.max(0,Number(reward.costOvercredits || 0)),reward.stock === undefined ? null : reward.stock,String(reward.eligibility || "") || null,reward.active !== false,asDate(reward.createdAt) || new Date()],
+    );
+  }
+  for (const claim of Array.isArray(guildData.claims) ? guildData.claims : []) {
+    const memberId = memberIds.get(String(claim.memberId || ""));
+    const rewardId = String(claim.rewardId || "").slice(0,64);
+    if (!memberId || !rewardId) continue;
+    const status = ["PENDING","APPROVED","REJECTED","FULFILLED","CANCELLED"].includes(String(claim.status || "").toUpperCase()) ? String(claim.status).toUpperCase() : "PENDING";
+    const claimId = String(claim.id || stableId("claim", guildId + ":" + JSON.stringify(claim))).slice(0,64);
+    await pool.execute(
+      "INSERT IGNORE INTO reward_claims (id,guild_id,reward_id,member_id,status,cost_overcredits,idempotency_key,reviewed_by,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+      [claimId,guildId,rewardId,memberId,status,Math.max(0,Number(claim.costOvercredits || 0)),"legacy-claim:"+claimId,claim.reviewedBy || null,asDate(claim.createdAt) || new Date()],
+    );
+  }
+  for (const ticket of Array.isArray(guildData.tickets) ? guildData.tickets : []) {
+    const memberId = memberIds.get(String(ticket.ownerId || ""));
+    if (!memberId) continue;
+    const status = ["OPEN","CLAIMED","CLOSED","ARCHIVED"].includes(String(ticket.status || "").toUpperCase()) ? String(ticket.status).toUpperCase() : "OPEN";
+    const ticketId = String(ticket.id || stableId("ticket", guildId + ":" + String(ticket.channelId || ""))).slice(0,64);
+    await pool.execute(
+      "INSERT IGNORE INTO tickets (id,guild_id,category,channel_id,member_id,status,claimed_by,rating,closed_at,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+      [ticketId,guildId,String(ticket.category || "support").slice(0,100),ticket.channelId || null,memberId,status,ticket.claimedBy || null,Number.isInteger(ticket.rating)?ticket.rating:null,asDate(ticket.closedAt),asDate(ticket.createdAt) || new Date()],
+    );
+  }
 }
 
 async function main() {
