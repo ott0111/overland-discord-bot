@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { SlashCommandBuilder } from "discord.js";
 import { command, reply, requirePerm } from "../helpers.js";
 import { getGuild, getMember, saveStore } from "../../store.js";
