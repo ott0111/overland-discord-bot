@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply, requirePerm } from "../helpers.js";
+import { command, reply, requirePermAsync } from "../helpers.js";
 import { getGuild, getMember, saveStore } from "../../store.js";
 import { revokeRole, syncDiscordRole } from "../../services/roles.js";
 import { resetMemberVerification } from "../../db/repositories/roles.js";
