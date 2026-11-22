@@ -10,6 +10,7 @@ import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db
 import { listTickets, updateTicket, listRewards, createReward, updateReward, reviewRewardClaim } from "./db/repositories/tickets-rewards.js";
 import { listRoles, createRole, updateRole } from "./db/repositories/roles.js";
 import { listAchievements, createAchievement } from "./db/repositories/achievements.js";
+import { listCampaignDashboard, createCampaign, reviewCampaignSubmission } from "./db/repositories/campaigns.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -122,6 +123,16 @@ async function requireTeamActor(guildId, actorId, permission) {
   if (!staff.group) throw Object.assign(new Error("Active staff access required"), { status: 403 });
   if (staff.group !== "Owner" && !staff.permissions.includes(permission)) {
     throw Object.assign(new Error("Missing permission: " + permission), { status: 403 });
+  }
+  return staff;
+}
+
+async function requireTeamActorAny(guildId, actorId, permissions) {
+  if (!/^\\d{17,20}$/.test(String(actorId || ""))) throw Object.assign(new Error("A valid staff actor ID is required"), { status: 401 });
+  const staff = await staffRecord(guildId, actorId);
+  if (!staff.group) throw Object.assign(new Error("Active staff access required"), { status: 403 });
+  if (staff.group !== "Owner" && !permissions.some((permission) => staff.permissions.includes(permission))) {
+    throw Object.assign(new Error("Missing one of: " + permissions.join(", ")), { status: 403 });
   }
   return staff;
 }
@@ -260,6 +271,38 @@ export function startCoreApi() {
       }
     }
 
+
+    const campaignsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/campaigns$/);
+    if (campaignsMatch) {
+      const guildId = campaignsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Campaign management requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActorAny(guildId, url.searchParams.get("actorId"), ["campaigns.manage", "campaigns.review"]);
+          return send(res, 200, await listCampaignDashboard(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "campaigns.manage");
+          const tasks = Array.isArray(input.tasks) ? input.tasks : typeof input.tasks === "string" ? input.tasks.split("\\n").map((task) => task.trim()).filter(Boolean) : [];
+          const campaign = await createCampaign(guildId, { ...input, tasks }, actor.discordId);
+          await appendAudit(guildId, actor.discordId, "campaign.create", campaign.id, { name: campaign.name }, "Campaign");
+          return send(res, 201, campaign);
+        }
+        if (req.method === "PATCH") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "campaigns.review");
+          if (!input.submissionId || !["APPROVED", "REJECTED"].includes(String(input.status))) return send(res, 400, { error: "submissionId and a valid review status are required" });
+          if (input.pointsAwarded !== undefined && (!Number.isSafeInteger(input.pointsAwarded) || input.pointsAwarded < 0 || input.pointsAwarded > 1000000)) return send(res, 400, { error: "pointsAwarded must be a non-negative integer up to 1,000,000" });
+          const submission = await reviewCampaignSubmission(guildId, String(input.submissionId), input.status === "APPROVED", actor.discordId, input.feedback || "", input.pointsAwarded);
+          await appendAudit(guildId, actor.discordId, "campaign.review." + submission.status.toLowerCase(), submission.id, { points: submission.pointsAwarded }, "CampaignSubmission");
+          return send(res, 200, { ok: true, pointsAwarded: submission.pointsAwarded });
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Campaign service unavailable" });
+      }
+    }
 
     const achievementsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/achievements$/);
     if (achievementsMatch) {
