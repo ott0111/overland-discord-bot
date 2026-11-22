@@ -8,6 +8,7 @@ import { listTeam, addTeamMember, updateTeamMember, removeTeamMember } from "./d
 import { listMembers, getMemberDetails } from "./db/repositories/members.js";
 import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db/repositories/economy.js";
 import { listTickets, updateTicket, listRewards, createReward, updateReward, reviewRewardClaim } from "./db/repositories/tickets-rewards.js";
+import { listRoles, createRole, updateRole } from "./db/repositories/roles.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -124,9 +125,9 @@ async function requireTeamActor(guildId, actorId, permission) {
   return staff;
 }
 
-async function appendAudit(guildId, actorId, action, entityId, details = {}) {
+async function appendAudit(guildId, actorId, action, entityId, details = {}, entityType = "InternalTeamMember") {
   const guild = getGuild(guildId);
-  guild.audit.unshift({ id: crypto.randomUUID(), actorId, action, entityType: "InternalTeamMember", entityId, details, createdAt: new Date().toISOString() });
+  guild.audit.unshift({ id: crypto.randomUUID(), actorId, action, entityType, entityId, details, createdAt: new Date().toISOString() });
   if (guild.audit.length > 5000) guild.audit.length = 5000;
   await saveStore();
 }
@@ -258,6 +259,38 @@ export function startCoreApi() {
       }
     }
 
+
+    const rolesMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/roles$/);
+    if (rolesMatch) {
+      const guildId = rolesMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Role management requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "roles.manage");
+          return send(res, 200, await listRoles(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "roles.manage");
+          if (input.discordRoleId && !/^\\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
+          const role = await createRole(guildId, input);
+          await appendAudit(guildId, actor.discordId, "role.create", role.id, { name: role.name }, "Role");
+          return send(res, 201, role);
+        }
+        if (req.method === "PATCH") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "roles.manage");
+          if (!input.id) return send(res, 400, { error: "id is required" });
+          if (input.discordRoleId && !/^\\d{17,20}$/.test(String(input.discordRoleId))) return send(res, 400, { error: "discordRoleId must be a valid Discord role ID" });
+          const role = await updateRole(guildId, String(input.id), input);
+          await appendAudit(guildId, actor.discordId, "role.update", role.id, { name: role.name }, "Role");
+          return send(res, 200, role);
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Role management service unavailable" });
+      }
+    }
 
     const ticketsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/tickets$/);
     if (ticketsMatch) {
