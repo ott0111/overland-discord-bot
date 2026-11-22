@@ -9,6 +9,7 @@ import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
 import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
+import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -101,7 +102,7 @@ async function createTicket(i,category="support"){
  const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
  const ch=await guild.channels.create({name:"ticket-"+category+"-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
  const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
- g.tickets.unshift(record);await saveStore();
+ if(process.env.OVERLAND_STORAGE==="mysql")await createTicketRecord(i.guildId,{id:record.id,category,channelId:ch.id,ownerId:i.user.id});else{g.tickets.unshift(record);await saveStore();}
  const ticketEmbed=embed("OVERLAND SUPPORT  /  "+category.toUpperCase(),"Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
   .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
  await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[ticketEmbed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
@@ -117,13 +118,13 @@ async function handleInteraction(i){
    const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
    const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
    if(!owner||(!topic.startsWith("overland-ticket:"))|| (owner!==i.user.id&&!staff))return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
-   const g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===i.channelId);
-   if(record){record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}
+   const g=getGuild(i.guildId),record=process.env.OVERLAND_STORAGE==="mysql"?await getTicketByChannel(i.guildId,i.channelId):g.tickets.find(t=>t.channelId===i.channelId);
+   if(record){if(process.env.OVERLAND_STORAGE==="mysql")await updateTicket(i.guildId,record.id,"close",{actorId:i.user.id});else{record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}}
    await i.channel.permissionOverwrites.edit(owner,{ViewChannel:true,SendMessages:false,ReadMessageHistory:true}).catch(()=>{});
    await i.channel.setTopic("overland-ticket-closed:"+owner).catch(()=>{});
    await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
    if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
-   await saveStore();
+   if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();
    await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
    const feedbackRow=new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n=>new ButtonBuilder().setCustomId("overland:ticket:feedback:"+n).setLabel(n+" / 5").setStyle(n>=4?ButtonStyle.Success:ButtonStyle.Secondary))); 
    await i.channel.send({embeds:[embed("HOW DID WE DO?","If you opened this ticket, rate your support experience below.")],components:[feedbackRow]}).catch(()=>{});
@@ -168,7 +169,7 @@ client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
   await saveStore();
  }catch(e){console.error("[RoleSync]",e);}
 });
-client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(g.stats.messages%25===0)await saveStore();});
+client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(process.env.OVERLAND_STORAGE==="mysql"&&m.channel?.isTextBased())await appendTicketMessage(m.guild.id,m.channel.id,m.author.id,m.content).catch(e=>console.error("[TicketMessage]",e.message));if(g.stats.messages%25===0)await saveStore();});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
  ready.user.setPresence({
