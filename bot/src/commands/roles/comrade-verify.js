@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply, requirePerm } from "../helpers.js";
+import { command, reply, requirePermAsync } from "../helpers.js";
 import { getMember, saveStore, getGuild } from "../../store.js";
 import { grantRole, revokeRole, syncDiscordRole } from "../../services/roles.js";
 import { setMemberXFollow } from "../../db/repositories/roles.js";
@@ -9,7 +9,7 @@ export default command(
     .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
     .addBooleanOption((o) => o.setName("following").setDescription("Confirmed following").setRequired(true)),
   async (i) => {
-    requirePerm(i, "roles.verify_x");
+    await requirePermAsync(i, "roles.verify_x");
     const user = i.options.getUser("member", true);
     const following = i.options.getBoolean("following", true);
     if (process.env.OVERLAND_STORAGE === "mysql") await setMemberXFollow(i.guildId, user, following);
