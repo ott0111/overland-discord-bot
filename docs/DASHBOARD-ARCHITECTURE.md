@@ -1,6 +1,6 @@
 # Overland Core — Dashboard Information Architecture
 
-**Status:** Stage 2D proposal for approval  
+**Status:** Stage 2D approved  
 **Baseline:** Existing dashboard routes and pages on `phase-3-core-api-mysql`  
 **Scope:** Navigation, page hierarchy, access boundaries, and dashboard workflow organization. This document does not redesign the visual system or change the live dashboard.
 
@@ -168,6 +168,6 @@ Stage 2D is complete when:
 - Permission boundaries are explicit.
 - Core API/MySQL ownership is consistent.
 - Existing pages remain available until replacements pass parity and tests.
-- The structure is approved before visual implementation.
+- The structure has been approved by the product owner and is ready to guide the later dashboard redesign.
 
 **Decision boundary:** This document defines dashboard information architecture only. Colors, typography, component styling, spacing, and visual brand rules belong to Stage 2E. This document does not modify the live dashboard or change route behavior.
