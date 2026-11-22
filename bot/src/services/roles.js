@@ -1,11 +1,12 @@
 import { getGuild, getMember, saveStore } from "../store.js";
-import { listRoles } from "../db/repositories/roles.js";
+import { listRoles, grantMemberRole, revokeMemberRole, evaluateMemberRoles } from "../db/repositories/roles.js";
 
 export const ROLE_NAMES = ["Founder","Admin","Warden","Pioneer","Luminary","Creator","Intellect","Socialite","Comrade","Citizen"];
 const INTERNAL = new Set(["Founder","Admin","Warden"]);
 export function roleByName(name) { return ROLE_NAMES.find(x => x.toLowerCase() === String(name).toLowerCase()) || null; }
 
 export async function grantRole(guildId, user, roleName, actorId, reason = "Role awarded") {
+  if (process.env.OVERLAND_STORAGE === "mysql") return grantMemberRole(guildId, user, roleName, actorId, reason);
   const role = roleByName(roleName);
   if (!role) throw new Error("Unknown Overland role.");
   if (INTERNAL.has(role)) throw new Error("Internal roles are managed through the private team system, not public role commands.");
@@ -21,6 +22,7 @@ export async function grantRole(guildId, user, roleName, actorId, reason = "Role
   return true;
 }
 export async function revokeRole(guildId, userId, roleName, actorId, reason = "Role removed") {
+  if (process.env.OVERLAND_STORAGE === "mysql") return revokeMemberRole(guildId, userId, roleName, actorId, reason);
   const guild = getGuild(guildId), member = getMember(guildId, userId);
   const role = roleByName(roleName);
   if (!role || INTERNAL.has(role)) throw new Error("That role cannot be removed here.");
@@ -32,6 +34,7 @@ export async function revokeRole(guildId, userId, roleName, actorId, reason = "R
   return removed;
 }
 export async function checkProgression(guildId, user) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return evaluateMemberRoles(guildId, user);
   const member = getMember(guildId, user);
   const guild = getGuild(guildId);
   const earned = [];
