@@ -1,4 +1,5 @@
 import { getGuild, getMember, saveStore } from "../store.js";
+import { listRoles } from "../db/repositories/roles.js";
 
 export const ROLE_NAMES = ["Founder","Admin","Warden","Pioneer","Luminary","Creator","Intellect","Socialite","Comrade","Citizen"];
 const INTERNAL = new Set(["Founder","Admin","Warden"]);
@@ -46,7 +47,11 @@ export async function checkProgression(guildId, user) {
   return earned;
 }
 export async function syncDiscordRole(guild, discordMember, roleName, add = true) {
-  const id = guild.settings.roleIds[roleName];
+  let id = guild.settings.roleIds[roleName];
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    const configured = await listRoles(discordMember.guild.id);
+    id = configured.find((item) => item.name.toLowerCase() === String(roleName).toLowerCase())?.discordRoleId || null;
+  }
   if (!id) return;
   const role = await discordMember.guild.roles.fetch(id).catch(() => null);
   if (!role) throw new Error("Discord role ID for " + roleName + " is not configured or the role no longer exists.");
