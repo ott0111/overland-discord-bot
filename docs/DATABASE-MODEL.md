@@ -20,6 +20,6 @@ The normal migration runner applies numbered SQL files once and records each app
 
 ## Current transition state
 
-`guild_state` remains the compatibility source used by the existing bot store. The normalized schema is additive and the staff repository can read active staff permissions from normalized tables, falling back to the compatibility store when a staff record has not yet been imported. The remaining work is to build verified import mappings and move each domain's reads/writes to repositories and Core API endpoints before retiring the compatibility store or PostgreSQL Prisma.
+`guild_state` remains the compatibility source used by the existing bot store. The normalized schema is additive. The importer now idempotently maps guild settings/stats, member identity/profile, balances, public roles, point transactions, internal staff records, and staff permission keys into relational tables. The staff repository reads active permissions from normalized tables and falls back to the compatibility store when a staff record has not yet been imported. Campaigns, submissions, referrals, rewards, claims, tickets, moderation history, check-ins, X posts, audit history, and other legacy arrays remain preserved in `guild_state` until their domain-specific importers and repositories are added.
 
 Do not switch production to normalized reads until data import, permission seeding, and parity checks are complete. Do not point the importer at the production database until credentials have been rotated and a backup has been verified.
