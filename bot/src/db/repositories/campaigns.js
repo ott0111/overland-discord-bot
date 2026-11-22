@@ -185,17 +185,21 @@ export async function reviewCampaignSubmission(guildId, submissionId, approved, 
       [approved ? "APPROVED" : "REJECTED", feedback ? String(feedback).slice(0, 2000) : null, points, actorId || null, guildId, submissionId],
     );
     if (approved && points > 0) {
-      const bucket = SOCIAL.has(submission.category) ? "social" : CONTRIBUTION.has(submission.category) ? "contribution" : "community";
-      const balanceColumn = bucket === "social" ? "social_points" : bucket === "contribution" ? "contribution_points" : "community_points";
-      await connection.execute(
-        "UPDATE point_balances SET overpoints = overpoints + ?, " + balanceColumn + " = " + balanceColumn + " + ?, updated_at = CURRENT_TIMESTAMP(3) WHERE member_id = ?",
-        [points, points, submission.memberId],
-      );
-      const [balances] = await connection.execute("SELECT overpoints FROM point_balances WHERE member_id = ? LIMIT 1", [submission.memberId]);
-      await connection.execute(
-        "INSERT IGNORE INTO point_transactions (id, guild_id, member_id, currency, category, amount, balance_after, source, idempotency_key, reason, actor_id) VALUES (?, ?, ?, 'OVERPOINTS', ?, ?, ?, 'SOCIAL_SUBMISSION', ?, ?, ?)",
-        [crypto.randomUUID(), guildId, submission.memberId, bucket, points, Number(balances[0].overpoints), "campaign-" + submission.id, "Campaign submission approved: " + submission.campaignName, actorId || null],
-      );
+      const idempotencyKey = "campaign-" + submission.id;
+      const [existingTransaction] = await connection.execute("SELECT id FROM point_transactions WHERE guild_id = ? AND idempotency_key = ? LIMIT 1", [guildId, idempotencyKey]);
+      if (!existingTransaction.length) {
+        const bucket = SOCIAL.has(submission.category) ? "social" : CONTRIBUTION.has(submission.category) ? "contribution" : "community";
+        const balanceColumn = bucket === "social" ? "social_points" : bucket === "contribution" ? "contribution_points" : "community_points";
+        await connection.execute(
+          "UPDATE point_balances SET overpoints = overpoints + ?, " + balanceColumn + " = " + balanceColumn + " + ?, updated_at = CURRENT_TIMESTAMP(3) WHERE member_id = ?",
+          [points, points, submission.memberId],
+        );
+        const [balances] = await connection.execute("SELECT overpoints FROM point_balances WHERE member_id = ? LIMIT 1", [submission.memberId]);
+        await connection.execute(
+          "INSERT INTO point_transactions (id, guild_id, member_id, currency, category, amount, balance_after, source, idempotency_key, reason, actor_id) VALUES (?, ?, ?, 'OVERPOINTS', ?, ?, ?, 'SOCIAL_SUBMISSION', ?, ?, ?)",
+          [crypto.randomUUID(), guildId, submission.memberId, bucket, points, Number(balances[0].overpoints), idempotencyKey, "Campaign submission approved: " + submission.campaignName, actorId || null],
+        );
+      }
     }
     await connection.commit();
     return { id: submission.id, campaignId: submission.campaignId, memberId: submission.discordId, username: submission.username, status: approved ? "APPROVED" : "REJECTED", pointsAwarded: points, category: submission.category };
