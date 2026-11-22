@@ -11,6 +11,9 @@ import { listTickets, updateTicket, listRewards, createReward, updateReward, rev
 import { listRoles, createRole, updateRole } from "./db/repositories/roles.js";
 import { listAchievements, createAchievement } from "./db/repositories/achievements.js";
 import { listCampaignDashboard, createCampaign, reviewCampaignSubmission } from "./db/repositories/campaigns.js";
+import { checkMemberAchievements } from "./db/repositories/achievements.js";
+import { evaluateMemberRoles } from "./db/repositories/roles.js";
+import { syncDiscordRole } from "./services/roles.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -144,7 +147,7 @@ async function appendAudit(guildId, actorId, action, entityId, details = {}, ent
   await saveStore();
 }
 
-export function startCoreApi() {
+export function startCoreApi(client = null) {
   if (!process.env.OVERLAND_API_SECRET) {
     console.warn("[Core API] Disabled: set OVERLAND_API_SECRET to enable the dashboard bridge.");
     return null;
@@ -295,8 +298,15 @@ export function startCoreApi() {
           if (!input.submissionId || !["APPROVED", "REJECTED"].includes(String(input.status))) return send(res, 400, { error: "submissionId and a valid review status are required" });
           if (input.pointsAwarded !== undefined && (!Number.isSafeInteger(input.pointsAwarded) || input.pointsAwarded < 0 || input.pointsAwarded > 1000000)) return send(res, 400, { error: "pointsAwarded must be a non-negative integer up to 1,000,000" });
           const submission = await reviewCampaignSubmission(guildId, String(input.submissionId), input.status === "APPROVED", actor.discordId, input.feedback || "", input.pointsAwarded);
-          await appendAudit(guildId, actor.discordId, "campaign.review." + submission.status.toLowerCase(), submission.id, { points: submission.pointsAwarded }, "CampaignSubmission");
-          return send(res, 200, { ok: true, pointsAwarded: submission.pointsAwarded });
+          const achievements = await checkMemberAchievements(guildId, { id: submission.memberId, username: submission.username });
+          const earnedRoles = await evaluateMemberRoles(guildId, { id: submission.memberId, username: submission.username });
+          const discordGuild = client?.guilds?.cache?.get(guildId);
+          if (discordGuild && earnedRoles.length) {
+            const discordMember = await discordGuild.members.fetch(submission.memberId).catch(() => null);
+            if (discordMember) for (const role of earnedRoles) await syncDiscordRole(getGuild(guildId), discordMember, role, true).catch(() => {});
+          }
+          await appendAudit(guildId, actor.discordId, "campaign.review." + submission.status.toLowerCase(), submission.id, { points: submission.pointsAwarded, achievements, roles: earnedRoles }, "CampaignSubmission");
+          return send(res, 200, { ok: true, pointsAwarded: submission.pointsAwarded, achievements, roles: earnedRoles });
         }
         return send(res, 405, { error: "Method not allowed" });
       } catch (error) {
