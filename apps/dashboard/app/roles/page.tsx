@@ -6,9 +6,10 @@ interface RoleRow {
   id: string; name: string; description: string | null; isInternal: boolean; isSelfAssignable: boolean;
   discordRoleId: string | null; minOverpoints: number | null; sortOrder: number;
   requiresRole: { id: string; name: string } | null;
+  config?: { guideInstructions?: string } | null;
   _count: { members: number };
 }
-type RoleDraft = { requiresRoleId: string; minOverpoints: string; discordRoleId: string; isSelfAssignable: boolean };
+type RoleDraft = { requiresRoleId: string; minOverpoints: string; discordRoleId: string; guideInstructions: string; isSelfAssignable: boolean };
 
 export default function RolesPage() {
   const roles = useFetch<RoleRow[]>("/api/roles");
@@ -18,6 +19,7 @@ export default function RolesPage() {
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [discordRoleId, setDiscordRoleId] = useState("");
+  const [guideInstructions, setGuideInstructions] = useState("");
   const [isSelfAssignable, setIsSelfAssignable] = useState(false);
 
   function draftFor(r: RoleRow): RoleDraft {
@@ -25,6 +27,7 @@ export default function RolesPage() {
       requiresRoleId: r.requiresRole?.id ?? "",
       minOverpoints: r.minOverpoints === null ? "" : String(r.minOverpoints),
       discordRoleId: r.discordRoleId ?? "",
+      guideInstructions: r.config?.guideInstructions ?? "",
       isSelfAssignable: r.isSelfAssignable,
     };
   }
@@ -35,6 +38,7 @@ export default function RolesPage() {
         requiresRoleId: role?.requiresRole?.id ?? "",
         minOverpoints: role?.minOverpoints === null || role?.minOverpoints === undefined ? "" : String(role.minOverpoints),
         discordRoleId: role?.discordRoleId ?? "",
+        guideInstructions: role?.config?.guideInstructions ?? "",
         isSelfAssignable: role?.isSelfAssignable ?? false,
       };
       return { ...current, [id]: { ...base, ...patch } };
@@ -49,6 +53,7 @@ export default function RolesPage() {
       minOverpoints: d.minOverpoints === "" ? null : Number(d.minOverpoints),
       isSelfAssignable: d.isSelfAssignable,
       discordRoleId: d.discordRoleId.trim() || null,
+      config: { guideInstructions: d.guideInstructions },
     });
     if (!res.ok) setErr(res.error);
     else { setMsg("Role " + r.name + " updated."); roles.reload(); }
@@ -56,11 +61,11 @@ export default function RolesPage() {
   async function create(e: React.FormEvent) {
     e.preventDefault();
     setMsg(""); setErr("");
-    const res = await api("/api/roles", "POST", { name, description, isSelfAssignable, discordRoleId: discordRoleId.trim() || null });
+    const res = await api("/api/roles", "POST", { name, description, isSelfAssignable, discordRoleId: discordRoleId.trim() || null, config: { guideInstructions } });
     if (!res.ok) setErr(res.error);
     else {
       setMsg("Role " + name + " created.");
-      setName(""); setDescription(""); setDiscordRoleId(""); setIsSelfAssignable(false);
+      setName(""); setDescription(""); setDiscordRoleId(""); setGuideInstructions(""); setIsSelfAssignable(false);
       roles.reload();
     }
   }
@@ -100,6 +105,9 @@ export default function RolesPage() {
                 <Field label="Discord Role ID">
                   <input className="input" value={d.discordRoleId} onChange={(e) => setDraft(r.id, { discordRoleId: e.target.value })} placeholder="Paste Discord role ID" />
                 </Field>
+                <Field label="Guide instructions">
+                  <textarea className="input" rows={3} value={d.guideInstructions} onChange={(e) => setDraft(r.id, { guideInstructions: e.target.value })} placeholder="Explain how members earn this role. Discord channel mentions like <#CHANNEL_ID> are supported." />
+                </Field>
                 <label className="checkbox-row"><input type="checkbox" checked={d.isSelfAssignable} onChange={(e) => setDraft(r.id, { isSelfAssignable: e.target.checked })} /> Self-assignable</label>
                 <Btn kind="primary" onClick={() => save(r)}>Save</Btn>
               </div>
@@ -113,6 +121,7 @@ export default function RolesPage() {
             <Field label="Name"><input className="input" value={name} onChange={(e) => setName(e.target.value)} required /></Field>
             <Field label="Description"><input className="input" value={description} onChange={(e) => setDescription(e.target.value)} /></Field>
             <Field label="Discord Role ID"><input className="input" value={discordRoleId} onChange={(e) => setDiscordRoleId(e.target.value)} placeholder="Optional Discord role ID" /></Field>
+            <Field label="Guide instructions"><textarea className="input" rows={3} value={guideInstructions} onChange={(e) => setGuideInstructions(e.target.value)} placeholder="Explain how members earn this role." /></Field>
             <label className="checkbox-row"><input type="checkbox" checked={isSelfAssignable} onChange={(e) => setIsSelfAssignable(e.target.checked)} /> Self-assignable interest role</label>
             <Btn kind="primary" type="submit">Create role</Btn>
           </div>
