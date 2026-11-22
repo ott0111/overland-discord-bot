@@ -135,3 +135,11 @@ export async function getTicketByChannel(guildId,channelId){
  const [rows]=await getPool().execute(TICKET_SELECT+" WHERE t.guild_id=? AND t.channel_id=? LIMIT 1",[guildId,channelId]);
  return rows.length?mapTicket(rows[0]):null;
 }
+
+export async function appendTicketMessage(guildId,channelId,authorId,content){
+ const pool=getPool();
+ const [rows]=await pool.execute("SELECT id FROM tickets WHERE guild_id=? AND channel_id=? LIMIT 1",[guildId,channelId]);
+ if(!rows.length)return false;
+ await pool.execute("INSERT INTO ticket_messages (id,guild_id,ticket_id,author_id,content) VALUES (?,?,?,?,?)",[crypto.randomUUID(),guildId,rows[0].id,String(authorId),String(content||"[attachment or non-text message]").slice(0,20000)]);
+ return true;
+}
