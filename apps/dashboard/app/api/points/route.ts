@@ -1,100 +1,41 @@
-import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
+function apiFailure(error: unknown) {
+  const status = typeof error === "object" && error !== null && "status" in error ? Number((error as {status?:number}).status) : 503;
+  const safeStatus = status >= 400 && status < 600 ? status : 503;
+  return NextResponse.json({ error: safeStatus === 503 ? "Economy service unavailable" : error instanceof Error ? error.message : "Request failed" }, { status: safeStatus });
+}
+
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "economy.view");
+  const { session, error } = await requireStaff(req, "economy.view");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   const params = new URL(req.url).searchParams;
-  const memberId = params.get("memberId") ?? undefined;
-  const category = params.get("category") ?? undefined;
-  try {
-    const [transactions, pointValues, dailyLimits] = await Promise.all([
-      prisma.pointTransaction.findMany({
-        where: {
-          ...(memberId ? { memberId } : {}),
-          ...(category ? { category } : {}),
-        },
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        include: { member: { include: { user: true } } },
-      }),
-      prisma.botConfiguration.findUnique({ where: { key: "pointValues" } }),
-      prisma.botConfiguration.findUnique({ where: { key: "dailyLimits" } }),
-    ]);
-    return NextResponse.json({
-      transactions,
-      pointValues: (pointValues?.value as Record<string, unknown>) ?? {},
-      dailyLimits: (dailyLimits?.value as Record<string, unknown>) ?? {},
-    });
-  } catch {
-    return NextResponse.json({ transactions: [], pointValues: {}, dailyLimits: [] });
-  }
+  const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/points?actorId=" + encodeURIComponent(session!.discordId) +
+    "&memberId=" + encodeURIComponent(params.get("memberId") || "") + "&category=" + encodeURIComponent(params.get("category") || "");
+  try { return NextResponse.json(await coreApiGet(path)); }
+  catch (err) { return apiFailure(err); }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "economy.adjust");
   if (error) return error;
-  const body = (await req.json()) as { memberRef?: string; currency?: string; amount?: number; reason?: string };
+  let body: { memberRef?: string; currency?: string; amount?: number; reason?: string };
+  try { body = await req.json(); } catch { return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 }); }
   if (!body.memberRef || !body.currency || typeof body.amount !== "number" || !Number.isSafeInteger(body.amount) || body.amount === 0 || Math.abs(body.amount) > 1000000000) {
     return NextResponse.json({ error: "memberRef, currency and a non-zero amount are required" }, { status: 400 });
   }
   if (body.currency !== "OVERPOINTS" && body.currency !== "OVERCREDITS") {
     return NextResponse.json({ error: "currency must be OVERPOINTS or OVERCREDITS" }, { status: 400 });
   }
-  const amount = body.amount as number;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const member = await prisma.discordMember.findFirst({
-      where: { OR: [{ id: body.memberRef }, { user: { discordId: body.memberRef } }] },
-    });
-    if (!member) return NextResponse.json({ error: "Member not found (use Discord ID or member ID)" }, { status: 404 });
-    const field = body.currency === "OVERPOINTS" ? "overpoints" : "overcredits";
-    const result = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${member.id}))`;
-      const t = tx as unknown as {
-        pointBalance: {
-          findUnique: (a: unknown) => Promise<{ overpoints: number; overcredits: number } | null>;
-          updateMany: (a: unknown) => Promise<{ count: number }>;
-          update: (a: unknown) => Promise<{ overpoints: number; overcredits: number }>;
-          create: (a: unknown) => Promise<{ overpoints: number; overcredits: number }>;
-        };
-        pointTransaction: { create: (a: unknown) => Promise<unknown> };
-      };
-      const existing = await t.pointBalance.findUnique({ where: { memberId: member.id } });
-      if (!existing && amount < 0) throw new Error("NEGATIVE_BALANCE");
-      let bal: { overpoints: number; overcredits: number };
-      if (existing) {
-        const guard = await t.pointBalance.updateMany({
-          where: { memberId: member.id, ...(amount < 0 ? { [field]: { gte: -amount } } : {}) },
-          data: { [field]: { increment: amount } },
-        });
-        if (guard.count !== 1) throw new Error("NEGATIVE_BALANCE");
-        bal = await t.pointBalance.findUnique({ where: { memberId: member.id } }) as { overpoints: number; overcredits: number };
-      } else {
-        bal = await t.pointBalance.create({ data: { memberId: member.id, [field]: amount } });
-      }
-      const after = (bal as unknown as Record<string, number>)[field];
-      await t.pointTransaction.create({
-        data: {
-          memberId: member.id, currency: body.currency as never, category: "admin", amount,
-          balanceAfter: after, source: "ADMIN_ADJUSTMENT",
-          idempotencyKey: "admin-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
-          reason: body.reason ?? "Admin adjustment",
-          actorId: session?.discordId ?? null,
-        },
-      });
-      return bal;
-    });
-    await writeAudit(session?.discordId ?? null, "economy.adjust", "PointBalance", member.id, {
-      currency: body.currency, amount, reason: body.reason ?? null,
-    });
-    return NextResponse.json({ ok: true, balance: result });
-  } catch (e) {
-    if (e instanceof Error && e.message === "NEGATIVE_BALANCE") {
-      return NextResponse.json({ error: "Adjustment would make the balance negative" }, { status: 400 });
-    }
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
-  }
+    const result = await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/points", { ...body, actorId: session!.discordId });
+    return NextResponse.json(result);
+  } catch (err) { return apiFailure(err); }
 }
