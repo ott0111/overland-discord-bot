@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply, requirePerm } from "../helpers.js";
+import { command, reply, requirePermAsync, syncMemberProgression } from "../helpers.js";
 import { getMember, getGuild, saveStore } from "../../store.js";
 import { grantRole, syncDiscordRole } from "../../services/roles.js";
 import { completeMemberVerification } from "../../db/repositories/roles.js";
