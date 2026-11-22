@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { timingSafeEqual } from "node:crypto";
 import { getGuild, saveStore } from "./store.js";
 import { databaseHealth } from "./db/health.js";
+import { findStaffMember } from "./db/repositories/staff.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -82,7 +83,11 @@ function overview(g) {
   };
 }
 
-function staffRecord(guildId, discordId) {
+async function staffRecord(guildId, discordId) {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    const normalized = await findStaffMember(guildId, discordId);
+    if (normalized) return normalized;
+  }
   const g = getGuild(guildId);
   const member = g.team.find((x) => x.discordId === discordId && !["REMOVED", "INACTIVE", "SUSPENDED"].includes(x.status));
   if (!member) return { discordId, username: "", group: null, permissions: [] };
@@ -110,7 +115,7 @@ export function startCoreApi() {
       return send(res, storage.status === "ok" ? 200 : 503, { ok: storage.status === "ok", service: "overland-core-api", storage });
     }
     const staffMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/staff\/(\d{17,20})$/);
-    if (staffMatch) return send(res, 200, staffRecord(staffMatch[1], staffMatch[2]));
+    if (staffMatch) return send(res, 200, await staffRecord(staffMatch[1], staffMatch[2]));
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
     if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
     const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
@@ -124,7 +129,7 @@ export function startCoreApi() {
         try {
           const input = JSON.parse(body || "{}");
           const actorId = String(input.actorId || "");
-          const staff = staffRecord(auditMatch[1], actorId);
+          const staff = await staffRecord(auditMatch[1], actorId);
           if (!staff.group) return send(res, 403, { error: "Active staff access required" });
           const guild = getGuild(auditMatch[1]);
           const entry = {
