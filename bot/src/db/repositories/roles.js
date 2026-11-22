@@ -111,3 +111,173 @@ export async function saveRoleGuideConfig(guildId, config, actorId) {
   );
   return config;
 }
+
+async function resolveRoleMember(connection, guildId, user) {
+  const discordId = String(typeof user === "string" ? user : user.id);
+  const username = String(typeof user === "string" ? discordId : user.username || user.globalName || discordId).slice(0, 100);
+  await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
+  const userId = "discord:" + discordId;
+  await connection.execute(
+    "INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)",
+    [userId, discordId, username],
+  );
+  await connection.execute(
+    "INSERT IGNORE INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?)",
+    ["member:" + guildId + ":" + discordId, guildId, userId],
+  );
+  const [rows] = await connection.execute(
+    "SELECT dm.id, dm.verified_at AS verifiedAt, dm.x_follow_verified AS xFollowVerified, dm.is_suspicious AS isSuspicious, u.discord_id AS discordId FROM discord_members dm INNER JOIN users u ON u.id = dm.user_id WHERE dm.guild_id = ? AND u.discord_id = ? LIMIT 1",
+    [guildId, discordId],
+  );
+  if (!rows.length) throw new Error("Unable to resolve guild member.");
+  await connection.execute("INSERT IGNORE INTO point_balances (member_id, guild_id) VALUES (?, ?)", [rows[0].id, guildId]);
+  return { ...rows[0], xFollowVerified: Boolean(rows[0].xFollowVerified), isSuspicious: Boolean(rows[0].isSuspicious) };
+}
+
+export async function grantMemberRole(guildId, user, roleName, actorId, reason = "Role awarded") {
+  const pool = getPool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const member = await resolveRoleMember(connection, guildId, user);
+    const [roles] = await connection.execute(
+      "SELECT id, name, is_internal AS isInternal, requires_role_id AS requiresRoleId, config FROM roles WHERE guild_id = ? AND LOWER(name) = LOWER(?) LIMIT 1",
+      [guildId, String(roleName)],
+    );
+    if (!roles.length) throw Object.assign(new Error("Unknown Overland role."), { status: 404 });
+    const role = roles[0];
+    if (role.isInternal) throw new Error("Internal roles are managed through the private team system.");
+    const config = parseJson(role.config);
+    if (config.requireVerified && !member.verifiedAt) throw new Error("This role requires completed verification first.");
+    if (config.requireXFollow && !member.xFollowVerified) throw new Error("This role requires verified X follow status.");
+    if (role.requiresRoleId) {
+      const [prerequisite] = await connection.execute(
+        "SELECT id FROM member_roles WHERE member_id = ? AND role_id = ? LIMIT 1",
+        [member.id, role.requiresRoleId],
+      );
+      if (!prerequisite.length) throw new Error("This role requires its prerequisite role first.");
+    }
+    await connection.execute(
+      "INSERT IGNORE INTO member_roles (id, guild_id, member_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP(3))",
+      [crypto.randomUUID(), guildId, member.id, role.id, actorId || null],
+    );
+    const [assigned] = await connection.execute(
+      "SELECT id FROM member_roles WHERE member_id = ? AND role_id = ? LIMIT 1",
+      [member.id, role.id],
+    );
+    const [history] = await connection.execute(
+      "SELECT id FROM role_history WHERE guild_id = ? AND member_id = ? AND role_id = ? AND action = 'GRANTED' ORDER BY created_at DESC LIMIT 1",
+      [guildId, member.id, role.id],
+    );
+    if (!history.length) {
+      await connection.execute(
+        "INSERT INTO role_history (id, guild_id, member_id, role_id, action, actor_id, reason) VALUES (?, ?, ?, ?, 'GRANTED', ?, ?)",
+        [crypto.randomUUID(), guildId, member.id, role.id, actorId || "SYSTEM", String(reason).slice(0, 1000)],
+      );
+    }
+    await connection.commit();
+    return Boolean(assigned.length);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function revokeMemberRole(guildId, user, roleName, actorId, reason = "Role removed") {
+  const pool = getPool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const member = await resolveRoleMember(connection, guildId, user);
+    const [roles] = await connection.execute(
+      "SELECT id, name, is_internal AS isInternal FROM roles WHERE guild_id = ? AND LOWER(name) = LOWER(?) LIMIT 1",
+      [guildId, String(roleName)],
+    );
+    if (!roles.length || roles[0].isInternal) throw new Error("That role cannot be removed here.");
+    const root = roles[0];
+    const [dependents] = await connection.execute("SELECT id, name FROM roles WHERE guild_id = ? AND requires_role_id = ? AND is_internal = FALSE", [guildId, root.id]);
+    const remove = [root, ...dependents];
+    for (const role of remove) {
+      const [assigned] = await connection.execute("DELETE FROM member_roles WHERE member_id = ? AND role_id = ?", [member.id, role.id]);
+      if (assigned.affectedRows) {
+        await connection.execute(
+          "INSERT INTO role_history (id, guild_id, member_id, role_id, action, actor_id, reason) VALUES (?, ?, ?, ?, 'REVOKED', ?, ?)",
+          [crypto.randomUUID(), guildId, member.id, role.id, actorId || "SYSTEM", String(reason).slice(0, 1000)],
+        );
+      }
+    }
+    await connection.commit();
+    return remove.map((role) => role.name);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+export async function evaluateMemberRoles(guildId, user) {
+  const pool = getPool();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const member = await resolveRoleMember(connection, guildId, user);
+    const [balances] = await connection.execute("SELECT overpoints FROM point_balances WHERE member_id = ? LIMIT 1", [member.id]);
+    const overpoints = Number(balances[0]?.overpoints || 0);
+    const [assignedRows] = await connection.execute("SELECT role_id FROM member_roles WHERE member_id = ?", [member.id]);
+    const assigned = new Set(assignedRows.map((row) => row.role_id));
+    const [roles] = await connection.execute(
+      "SELECT id, name, requires_role_id AS requiresRoleId, min_overpoints AS minOverpoints, config FROM roles WHERE guild_id = ? AND is_internal = FALSE ORDER BY sort_order ASC, name ASC",
+      [guildId],
+    );
+    const [staffRows] = await connection.execute(
+      "SELECT id FROM internal_team_members WHERE guild_id = ? AND member_id = ? AND status = 'ACTIVE' LIMIT 1",
+      [guildId, member.id],
+    );
+    const earned = [];
+    for (const role of roles) {
+      if (assigned.has(role.id)) continue;
+      const config = parseJson(role.config);
+      if (config.excludeActiveStaff && staffRows.length) continue;
+      if (config.requireVerified && !member.verifiedAt) continue;
+      if (config.requireXFollow && !member.xFollowVerified) continue;
+      if (role.requiresRoleId && !assigned.has(role.requiresRoleId)) continue;
+      if (role.minOverpoints !== null && overpoints < Number(role.minOverpoints)) continue;
+      const progression = config.progression || {};
+      if (progression.kind === "minimum_overpoints" && overpoints < Number(progression.minimum || 0)) continue;
+      if (progression.kind === "approved_submission_count") {
+        const categories = Array.isArray(progression.categories) ? progression.categories.filter((x) => typeof x === "string").slice(0, 20) : [];
+        const minimum = Number(progression.minimum || 0);
+        if (!categories.length || !Number.isSafeInteger(minimum) || minimum < 1) continue;
+        const placeholders = categories.map(() => "?").join(",");
+        const [counts] = await connection.execute(
+          "SELECT COUNT(*) AS total FROM campaign_submissions WHERE guild_id = ? AND member_id = ? AND status = 'APPROVED' AND category IN (" + placeholders + ")",
+          [guildId, member.id, ...categories],
+        );
+        if (Number(counts[0]?.total || 0) < minimum) continue;
+      }
+      await connection.execute(
+        "INSERT IGNORE INTO member_roles (id, guild_id, member_id, role_id, granted_by, granted_at) VALUES (?, ?, ?, ?, 'SYSTEM', CURRENT_TIMESTAMP(3))",
+        [crypto.randomUUID(), guildId, member.id, role.id],
+      );
+      const [nowAssigned] = await connection.execute("SELECT id FROM member_roles WHERE member_id = ? AND role_id = ? LIMIT 1", [member.id, role.id]);
+      if (nowAssigned.length) {
+        assigned.add(role.id);
+        await connection.execute(
+          "INSERT INTO role_history (id, guild_id, member_id, role_id, action, actor_id, reason) VALUES (?, ?, ?, ?, 'GRANTED', 'SYSTEM', 'Automatic role progression')",
+          [crypto.randomUUID(), guildId, member.id, role.id],
+        );
+        earned.push(role.name);
+      }
+    }
+    await connection.commit();
+    return earned;
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
