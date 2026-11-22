@@ -106,3 +106,14 @@ This is the economy-command cutover, not a full bot-data cutover. Role progressi
 - The JSON importer now includes existing reward catalog entries, reward claims, and ticket records, while preserving the original JSON file and using insert-if-absent semantics.
 
 This cutover still requires integration tests against a disposable MySQL database. Ticket transcript messages and the complete historical ticket message archive are not imported by this pass. Do not retire PostgreSQL or enable the production MySQL cutover until all remaining dashboard routes and their data models have been migrated and reconciled.
+
+## Phase 3.6: Public role configuration and guide foundation
+
+- Added a normalized MySQL role repository for listing, creating, and updating public role definitions, Discord role mappings, prerequisites, point thresholds, and configuration metadata.
+- Added Core API `GET`, `POST`, and `PATCH` routes for role management with per-request `roles.manage` authorization.
+- Moved the dashboard Public Roles API route from direct Prisma queries to Core API.
+- Updated the legacy `/role-config` command to write Discord role mappings to normalized MySQL when MySQL mode is active; role synchronization resolves the mapping from MySQL in that mode.
+- Added `/role-guide`, which publishes or refreshes a persistent, multi-embed public role guide using configured role descriptions, role mentions, point thresholds, prerequisites, and optional guide instructions. Guide message IDs are stored in `bot_configuration`.
+- Added `docs/ROLE-PROGRESSION-GUIDE.md` to define the broader configurable guide and progression requirements.
+
+This is the role-configuration and guide foundation, not the complete role/verification cutover. Automatic role progression, member-role assignments and history, verification state/challenges, X-follow verification, achievements, and all relevant dashboard flows still require normalized repositories, Core API contracts, bot integration, import reconciliation, and tests. The guide currently renders the configured role metadata; it does not invent missing Overland earning rules or point thresholds. Validate the new path against a disposable MySQL database and a test Discord guild before enabling MySQL mode in production.
