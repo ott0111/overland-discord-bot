@@ -117,3 +117,18 @@ This cutover still requires integration tests against a disposable MySQL databas
 - Added `docs/ROLE-PROGRESSION-GUIDE.md` to define the broader configurable guide and progression requirements.
 
 This is the role-configuration and guide foundation, not the complete role/verification cutover. Automatic role progression, member-role assignments and history, verification state/challenges, X-follow verification, achievements, and all relevant dashboard flows still require normalized repositories, Core API contracts, bot integration, import reconciliation, and tests. The guide currently renders the configured role metadata; it does not invent missing Overland earning rules or point thresholds. Validate the new path against a disposable MySQL database and a test Discord guild before enabling MySQL mode in production.
+
+## Phase 3.7: Normalized roles and verification foundation
+
+- Expanded the normalized role repository to support member role grants/revocations, prerequisite checks, role history, and idempotent automatic progression.
+- Automatic progression currently preserves the legacy Overland rules imported from JSON: Citizen requires verification; Comrade requires Citizen plus verified X follow; Socialite requires 500 Overpoints; Creator and Intellect use their existing approved-submission category thresholds.
+- The JSON importer now ensures the official Overland role catalogue exists for each imported guild, imports Discord role mappings, preserves existing member-role assignments, imports role history, and seeds the current progression metadata without overwriting non-empty custom role configuration.
+- Verification challenge state and rules acceptance are stored in normalized member profile JSON. Verified status, X-follow status, and suspicious-account status use normalized `discord_members` fields.
+- The `/rules`, `/verify`, `/verify-answer`, `/verify-user`, `/unverify`, and `/comrade-verify` flows now use normalized MySQL state when MySQL mode is active. The verification button flow is also connected to the normalized state.
+- Role progression is re-evaluated after daily check-ins and the existing staff point-award commands; newly earned roles are synchronized to Discord using the MySQL role mapping.
+- Role-related staff commands and the updated economy award commands use an asynchronous permission check against normalized staff records in MySQL mode.
+- The dashboard Public Roles surface now allows staff to set Discord role IDs and continues to call Core API rather than Prisma.
+- Role history reads from normalized MySQL in MySQL mode.
+- The `/role-guide` command publishes or refreshes the role catalogue as persistent branded Discord embeds.
+
+Remaining limitations: verification settings, blacklist records, role-menu panel configuration, achievements, and some community/submission/referral workflows still use compatibility JSON or legacy paths. The role progression evaluator currently implements the existing Overland rules; richer multi-category and all-of/any-of requirement editing is defined in `docs/ROLE-PROGRESSION-GUIDE.md` but is not yet exposed as a complete dashboard editor. This work has not been tested against a disposable MySQL database or a live test Discord guild. Production migration remains unauthorized.
