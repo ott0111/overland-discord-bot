@@ -29,13 +29,18 @@ export async function addTeamMember(guildId, input) {
   const discordId = String(input.discordId);
   const username = String(input.username).trim();
   const userId = "discord:" + discordId;
-  const memberId = "member:" + guildId + ":" + discordId;
+  let memberId;
   const teamId = crypto.randomUUID();
   try {
     await connection.beginTransaction();
     await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
     await connection.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)", [userId, discordId, username]);
-    await connection.execute("INSERT INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)", [memberId, guildId, userId]);
+    const [users] = await connection.execute("SELECT id FROM users WHERE discord_id = ?", [discordId]);
+    const actualUserId = users[0].id;
+    const proposedMemberId = "member:" + guildId + ":" + discordId;
+    await connection.execute("INSERT INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)", [proposedMemberId, guildId, actualUserId]);
+    const [members] = await connection.execute("SELECT id FROM discord_members WHERE guild_id = ? AND user_id = ?", [guildId, actualUserId]);
+    memberId = members[0].id;
     const [groups] = await connection.execute("SELECT id FROM permission_groups WHERE name = ?", [groupName]);
     if (!groups.length) throw Object.assign(new Error("Permission group has not been seeded"), { status: 400 });
     await connection.execute("INSERT INTO internal_team_members (id, guild_id, member_id, discord_id, username, public_role, job_title, department, responsibilities, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
