@@ -2,8 +2,13 @@ import crypto from "node:crypto";
 import {getPool} from "../mysql.js";
 
 async function resolveMember(conn,guildId,discordId){
- const [rows]=await conn.execute("SELECT dm.id,u.username,u.discord_id AS discordId FROM discord_members dm JOIN users u ON u.id=dm.user_id WHERE dm.guild_id=? AND u.discord_id=? LIMIT 1",[guildId,String(discordId)]);
- if(!rows.length)throw Object.assign(new Error("Member not found"),{status:404});
+ const id=String(discordId),username=id;
+ await conn.execute("INSERT IGNORE INTO guilds (guild_id,settings,stats) VALUES (?,JSON_OBJECT(),JSON_OBJECT())",[guildId]);
+ await conn.execute("INSERT INTO users (id,discord_id,username) VALUES (?,?,?) ON DUPLICATE KEY UPDATE username=VALUES(username)",["discord:"+id,id,username]);
+ const [users]=await conn.execute("SELECT id FROM users WHERE discord_id=? LIMIT 1",[id]);
+ await conn.execute("INSERT IGNORE INTO discord_members (id,guild_id,user_id) VALUES (?,?,?)",["member:"+guildId+":"+id,guildId,users[0].id]);
+ const [rows]=await conn.execute("SELECT dm.id,u.username,u.discord_id AS discordId FROM discord_members dm JOIN users u ON u.id=dm.user_id WHERE dm.guild_id=? AND u.discord_id=? LIMIT 1",[guildId,id]);
+ if(!rows.length)throw Object.assign(new Error("Unable to resolve guild member"),{status:404});
  return rows[0];
 }
 function mapTicket(r){return {id:r.id,number:r.ticketNumber,category:r.category,channelId:r.channelId,status:r.status,claimedBy:r.claimedBy,rating:r.rating,firstResponseAt:r.firstResponseAt,closedAt:r.closedAt,createdAt:r.createdAt,updatedAt:r.updatedAt,member:{id:r.memberId,user:{discordId:r.discordId,username:r.username}}};}
