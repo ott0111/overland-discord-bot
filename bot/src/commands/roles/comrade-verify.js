@@ -1,5 +1,5 @@
 import { SlashCommandBuilder } from "discord.js";
-import { command, reply, requirePermAsync } from "../helpers.js";
+import { command, reply, requirePermAsync, syncMemberProgression } from "../helpers.js";
 import { getMember, saveStore, getGuild } from "../../store.js";
 import { grantRole, revokeRole, syncDiscordRole } from "../../services/roles.js";
 import { setMemberXFollow } from "../../db/repositories/roles.js";
@@ -21,6 +21,7 @@ export default command(
     if (following) {
       await grantRole(i.guildId, user, "Comrade", i.user.id, "X follow verified");
       await syncDiscordRole(getGuild(i.guildId), discordMember, "Comrade", true).catch(() => {});
+      await syncMemberProgression(i, user);
     } else {
       await revokeRole(i.guildId, user.id, "Comrade", i.user.id, "X follow verification removed");
       await syncDiscordRole(getGuild(i.guildId), discordMember, "Comrade", false).catch(() => {});
