@@ -142,6 +142,34 @@ async function importGuild(pool, guildId, guildData) {
     );
   }
 
+  const campaignIds = new Map();
+  for (const campaign of Array.isArray(guildData.campaigns) ? guildData.campaigns : []) {
+    const legacyId = String(campaign.id || "");
+    const campaignId = stableId("campaign", guildId + ":" + (legacyId || campaign.name || JSON.stringify(campaign)));
+    const statusValue = String(campaign.status || "DRAFT").toUpperCase();
+    const status = statusValue === "COMPLETED" ? "ENDED" : ["DRAFT", "ACTIVE", "ENDED", "CANCELLED"].includes(statusValue) ? statusValue : "DRAFT";
+    const startsAt = asDate(campaign.startsAt || campaign.createdAt) || new Date();
+    const endsAt = asDate(campaign.endsAt) || startsAt;
+    await pool.execute(
+      "INSERT IGNORE INTO campaigns (id, guild_id, name, description, objectives, starts_at, ends_at, tasks, point_reward, submission_requirements, status, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [campaignId, guildId, String(campaign.name || "Imported campaign").slice(0, 190), String(campaign.description || ""), campaign.objectives ? String(campaign.objectives) : null, startsAt, endsAt, JSON.stringify(Array.isArray(campaign.tasks) ? campaign.tasks : []), Math.max(0, Number(campaign.pointReward || 0)), campaign.submissionRequirements ? String(campaign.submissionRequirements) : null, status, campaign.createdBy ? String(campaign.createdBy) : null, asDate(campaign.createdAt) || startsAt],
+    );
+    if (legacyId) campaignIds.set(legacyId, campaignId);
+  }
+  for (const submission of Array.isArray(guildData.submissions) ? guildData.submissions : []) {
+    const discordId = String(submission.memberId || "");
+    const memberId = memberIds.get(discordId);
+    const campaignId = campaignIds.get(String(submission.campaignId || ""));
+    if (!memberId || !campaignId) continue;
+    const statusValue = String(submission.status || "PENDING").toUpperCase();
+    const status = ["PENDING", "APPROVED", "REJECTED"].includes(statusValue) ? statusValue : "PENDING";
+    const submissionId = stableId("submission", guildId + ":" + (submission.id || JSON.stringify(submission)));
+    await pool.execute(
+      "INSERT IGNORE INTO campaign_submissions (id, guild_id, campaign_id, member_id, content, category, link_url, image_url, status, feedback, points_awarded, reviewed_by, reviewed_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [submissionId, guildId, campaignId, memberId, String(submission.content || ""), String(submission.category || "social").slice(0, 80), submission.linkUrl ? String(submission.linkUrl) : null, submission.imageUrl ? String(submission.imageUrl) : null, status, submission.feedback ? String(submission.feedback) : null, Math.max(0, Number(submission.pointsAwarded || 0)), submission.reviewedBy ? String(submission.reviewedBy) : null, asDate(submission.reviewedAt), asDate(submission.createdAt) || new Date()],
+    );
+  }
+
   const achievementDefaults = [
     ["first-checkin", "First Steps", "Complete your first daily check-in", "CHECKIN", 1, 0, 0],
     ["streak-7", "Consistent", "Reach a 7 day check-in streak", "STREAK", 7, 0, 0],
@@ -349,7 +377,7 @@ async function main() {
     await importGuild(pool, guildId, guildData);
   }
   console.log("[Import] Compatibility rows inserted: " + inserted + "; existing rows skipped: " + skipped + ".");
-  console.log("[Import] Normalized identity, balances, roles, achievements, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
+  console.log("[Import] Normalized identity, balances, roles, achievements, campaigns, submissions, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
   console.log("[Import] The original JSON file was not changed or deleted.");
 }
 
