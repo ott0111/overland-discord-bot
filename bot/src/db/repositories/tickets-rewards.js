@@ -43,7 +43,7 @@ export async function updateTicket(guildId,id,action,{actorId,rating}={}){
 }
 export async function listRewards(guildId){
  const pool=getPool();
- const [rewards]=await pool.execute("SELECT r.id,r.name,r.description,r.image_url AS imageUrl,r.cost_overcredits AS costOvercredits,r.stock,r.eligibility,r.active,r.created_at AS createdAt,r.updated_at AS updatedAt,COUNT(rc.id) AS claimsCount FROM rewards r LEFT JOIN reward_claims rc ON rc.reward_id=r.id WHERE r.guild_id=? GROUP BY r.id ORDER BY r.created_at DESC",[guildId]);
+ const [rewards]=await pool.execute("SELECT r.id,r.name,r.description,r.image_url AS imageUrl,r.cost_overcredits AS costOvercredits,r.stock,r.eligibility,r.active,r.created_at AS createdAt,r.updated_at AS updatedAt,(SELECT COUNT(*) FROM reward_claims rc WHERE rc.reward_id=r.id) AS claimsCount FROM rewards r WHERE r.guild_id=? ORDER BY r.created_at DESC",[guildId]);
  const [claims]=await pool.execute("SELECT rc.id,rc.reward_id AS rewardId,rc.member_id AS memberId,rc.status,rc.cost_overcredits AS costOvercredits,rc.reviewed_by AS reviewedBy,rc.created_at AS createdAt,r.name AS rewardName,u.username,u.discord_id AS discordId FROM reward_claims rc JOIN rewards r ON r.id=rc.reward_id JOIN discord_members dm ON dm.id=rc.member_id JOIN users u ON u.id=dm.user_id WHERE rc.guild_id=? ORDER BY rc.created_at DESC LIMIT 100",[guildId]);
  return {rewards:rewards.map(r=>({...r,claimsCount:Number(r.claimsCount),active:Boolean(r.active)})),claims:claims.map(c=>({...c,reward:{id:c.rewardId,name:c.rewardName},member:{id:c.memberId,user:{username:c.username,discordId:c.discordId}}}))};
 }
