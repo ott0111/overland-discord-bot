@@ -6,7 +6,8 @@ import { databaseHealth } from "./db/health.js";
 import { findStaffMember } from "./db/repositories/staff.js";
 import { listTeam, addTeamMember, updateTeamMember, removeTeamMember } from "./db/repositories/team.js";
 import { listMembers, getMemberDetails } from "./db/repositories/members.js";
-import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db/repositories/economy.js";\nimport { listTickets, updateTicket, listRewards, createReward, updateReward, reviewRewardClaim } from "./db/repositories/tickets-rewards.js";
+import { listPointTransactions, adjustMemberBalance, getLeaderboard } from "./db/repositories/economy.js";
+import { listTickets, updateTicket, listRewards, createReward, updateReward, reviewRewardClaim } from "./db/repositories/tickets-rewards.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
