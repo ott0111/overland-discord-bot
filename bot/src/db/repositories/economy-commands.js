@@ -112,3 +112,9 @@ export async function getNormalizedMemberBalance(guildId,discordId) {
  const [rows]=await getPool().execute("SELECT dm.id AS memberId,u.username,pb.overpoints,pb.overcredits,pb.community_points AS communityPoints,pb.social_points AS socialPoints,pb.referral_points AS referralPoints,pb.contribution_points AS contributionPoints FROM discord_members dm JOIN users u ON u.id=dm.user_id LEFT JOIN point_balances pb ON pb.member_id=dm.id WHERE dm.guild_id=? AND u.discord_id=? LIMIT 1",[guildId,discordId]);
  return rows[0]||null;
 }
+
+export async function getNormalizedPointValue(guildId,key,fallback=0){
+ const config=await settings(getPool(),guildId);
+ const value=Number(config.pointValues?.[key]);
+ return Number.isFinite(value)?value:fallback;
+}
