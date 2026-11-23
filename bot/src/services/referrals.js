@@ -6,7 +6,7 @@ export function existingInvite(guildId, userId) {
   return Object.entries(getGuild(guildId).invites).find(([, invite]) => invite.memberId === userId && !invite.revokedAt)?.[0] || null;
 }
 export async function createInvite(guildId, user, invite) {
-  if (process.env.OVERLAND_STORAGE === "mysql") { await recordInviteCreated(guildId, { ...invite, inviter: user }); return invite; }
+  if (process.env.OVERLAND_STORAGE === "mysql") { await recordInviteCreated(guildId, { code: invite.code, uses: invite.uses || 0, inviter: user }); return invite; }
   const g = getGuild(guildId), m = getMember(guildId, user);
   g.invites[invite.code] = { memberId: m.id, createdAt: new Date().toISOString(), uses: invite.uses || 0, revokedAt: null };
   await saveStore(); return invite;
