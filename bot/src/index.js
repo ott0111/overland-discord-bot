@@ -54,7 +54,11 @@ async function syncCommands(appId){
  }
 }
 async function cacheInvites(guild){
- try{const invites=await guild.invites.fetch();inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])));}catch(e){console.warn("[Invites] Cannot read invite uses in "+guild.name+". Grant Manage Guild to track referrals.",e.message);}
+ try{
+  const invites=await guild.invites.fetch();
+  inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])));
+  if(process.env.OVERLAND_STORAGE==="mysql")for(const invite of invites.values())if(invite.inviter)await createInvite(guild.id,invite.inviter,invite);
+ }catch(e){console.warn("[Invites] Cannot read invite uses in "+guild.name+". Grant Manage Guild to track referrals.",e.message);}
 }
 async function announceXPosts(){
  const token=process.env.X_BEARER_TOKEN;if(!token)return;
