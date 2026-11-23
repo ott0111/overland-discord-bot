@@ -11,6 +11,7 @@ import { listTickets, updateTicket, listRewards, createReward, updateReward, rev
 import { listRoles, createRole, updateRole } from "./db/repositories/roles.js";
 import { listAchievements, createAchievement } from "./db/repositories/achievements.js";
 import { listCampaignDashboard, createCampaign, reviewCampaignSubmission } from "./db/repositories/campaigns.js";
+import { listReferralDashboard } from "./db/repositories/referrals.js";
 import { checkMemberAchievements } from "./db/repositories/achievements.js";
 import { evaluateMemberRoles } from "./db/repositories/roles.js";
 import { syncDiscordRole } from "./services/roles.js";
@@ -274,6 +275,19 @@ export function startCoreApi(client = null) {
       }
     }
 
+
+    const referralsMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/referrals$/);
+    if (referralsMatch) {
+      const guildId = referralsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Referral records require MySQL storage to be enabled." });
+      if (req.method !== "GET") return send(res, 405, { error: "Method not allowed" });
+      try {
+        await requireTeamActor(guildId, url.searchParams.get("actorId"), "referrals.view");
+        return send(res, 200, await listReferralDashboard(guildId));
+      } catch (error) {
+        return send(res, error.status || 503, { error: error.status ? error.message : "Referral service unavailable" });
+      }
+    }
 
     const campaignsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/campaigns$/);
     if (campaignsMatch) {
