@@ -146,3 +146,22 @@ Remaining limitations: verification settings, blacklist records, role-menu panel
 - Achievement evaluation now runs during daily check-ins, verification, X-follow verification, and existing staff point-award flows. Newly awarded points are followed by role progression evaluation.
 
 Remaining limitations: historical campaign submissions and referral records are not yet fully imported, so achievement kinds that depend on those records cannot be considered reconciled until those domains are migrated. Custom achievements currently use an Overpoints threshold; event-specific custom conditions and full achievement editing/deactivation remain future work. Validate against a disposable MySQL database before production.
+
+## Phase 3.9: Campaign and referral migration progress
+
+Campaign workflows are now backed by normalized MySQL in MySQL mode:
+
+- Dashboard campaign listing, creation, and submission review use Core API and normalized repositories.
+- Bot campaign browsing, creation, member submissions, review, and approved-submission gallery paths use normalized repositories.
+- Submission approval awards category-specific Overpoints and records an idempotent point transaction.
+- Historical campaign and submission records are imported non-destructively by the JSON importer.
+
+Referral migration has now started:
+
+- Added normalized referral repository operations for invite registration, referral joins, verification rewards, seven-day retention, Comrade conversion milestones, member referral stats, and dashboard statistics.
+- The bot records newly created invites and backfills active invites during startup when MySQL mode is enabled.
+- Referral dashboard reads now pass through Core API with `referrals.view` authorization; the dashboard route no longer queries Prisma.
+- Migration 0006 seeds referral view/manage permissions.
+- The JSON importer now maps historical referral and invite records into normalized tables without modifying the source JSON.
+
+Referral migration is not yet complete. The legacy invite/reward history must be reconciled against a disposable MySQL database, and the milestone processor requires integration coverage for duplicate joins, self-referrals, suspicious referrals, verification reward idempotency, retention, and Comrade conversion. Do not enable production MySQL mode based on this partial cutover.
