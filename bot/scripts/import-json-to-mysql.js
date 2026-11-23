@@ -170,6 +170,31 @@ async function importGuild(pool, guildId, guildData) {
     );
   }
 
+  for (const referral of Array.isArray(guildData.referrals) ? guildData.referrals : []) {
+    const referrerId = memberIds.get(String(referral.referrerId || referral.referrerMemberId || ""));
+    const referredId = memberIds.get(String(referral.referredId || referral.referredMemberId || ""));
+    if (!referrerId || !referredId || referrerId === referredId) continue;
+    const referralId = stableId("referral", guildId + ":" + (referral.id || referrerId + ":" + referredId));
+    await pool.execute(
+      "INSERT IGNORE INTO referrals (id, guild_id, referrer_member_id, referred_member_id, invite_code, verified, verified_at, retained_7d, became_comrade, suspicious, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [referralId, guildId, referrerId, referredId, String(referral.inviteCode || "legacy").slice(0, 100), Boolean(referral.verified), asDate(referral.verifiedAt), Boolean(referral.retained7d || referral.retained_7d), Boolean(referral.becameComrade || referral.became_comrade), Boolean(referral.suspicious), asDate(referral.createdAt) || new Date()],
+    );
+  }
+
+  for (const [code, invite] of Object.entries(guildData.invites || {})) {
+    const memberId = memberIds.get(String(invite.memberId || ""));
+    if (!memberId || !code) continue;
+    await pool.execute(
+      "INSERT IGNORE INTO referral_invites (id, guild_id, member_id, invite_code, created_at, revoked_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [stableId("referral-invite", guildId + ":" + code), guildId, memberId, String(code).slice(0, 100), asDate(invite.createdAt) || new Date(), asDate(invite.revokedAt)],
+    );
+    const [members] = await pool.execute("SELECT u.discord_id FROM discord_members dm INNER JOIN users u ON u.id = dm.user_id WHERE dm.id = ? LIMIT 1", [memberId]);
+    await pool.execute(
+      "INSERT IGNORE INTO invite_tracking (id, guild_id, invite_code, inviter_id, uses, payload, updated_at) VALUES (?, ?, ?, ?, ?, JSON_OBJECT(), CURRENT_TIMESTAMP(3))",
+      [stableId("invite-tracking", guildId + ":" + code), guildId, String(code).slice(0, 100), members[0]?.discord_id || null, Math.max(0, Number(invite.uses || 0))],
+    );
+  }
+
   const achievementDefaults = [
     ["first-checkin", "First Steps", "Complete your first daily check-in", "CHECKIN", 1, 0, 0],
     ["streak-7", "Consistent", "Reach a 7 day check-in streak", "STREAK", 7, 0, 0],
