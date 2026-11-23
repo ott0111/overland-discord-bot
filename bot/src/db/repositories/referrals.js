@@ -54,6 +54,7 @@ export async function recordReferralJoin(guildId, user, inviteCode) {
 }
 
 export async function verifyReferralRecord(guildId, referredDiscordId, amount) {
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000) throw Object.assign(new Error("Invalid referral reward amount"), { status: 400 });
   const connection = await getPool().getConnection();
   try {
     await connection.beginTransaction();
@@ -74,6 +75,7 @@ export async function verifyReferralRecord(guildId, referredDiscordId, amount) {
 }
 
 export async function processReferralMilestonesNormalized(guildId, presentDiscordIds, retentionReward, comradeReward) {
+  for (const amount of [retentionReward, comradeReward]) if (!Number.isSafeInteger(amount) || amount < 0 || amount > 1000000) throw Object.assign(new Error("Invalid referral milestone reward amount"), { status: 400 });
   const connection = await getPool().getConnection();
   const awarded = [];
   try {
