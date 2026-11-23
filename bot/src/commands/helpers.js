@@ -55,8 +55,8 @@ export function command(data, execute) { return { data, execute }; }
 
 export async function logModeration(i, action, target, reason, extra = {}) {
   const g = getGuild(i.guildId);
-  const durationLabel = extra.duration || String(reason || "").match(/\\d+\\s+minutes?/i)?.[0] || null;
-  const durationMinutes = extra.durationMinutes ?? (Number(String(reason || "").match(/(\\d+)\\s+minutes?/i)?.[1]) || null);
+  const durationLabel = extra.duration || String(reason || "").match(/\d+\s+minutes?/i)?.[0] || null;
+  const durationMinutes = extra.durationMinutes ?? (Number(String(reason || "").match(/(\d+)\s+minutes?/i)?.[1]) || null);
   const entry = process.env.OVERLAND_STORAGE === "mysql"
     ? await createModerationAction(i.guildId, {
         action, target, actorId: i.user.id, reason: reason || "No reason provided",
