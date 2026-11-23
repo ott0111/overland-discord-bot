@@ -276,7 +276,7 @@ export function startCoreApi(client = null) {
     }
 
 
-    const referralsMatch = url.pathname.match(/^\\/v1\\/guilds\\/(\\d{17,20})\\/referrals$/);
+    const referralsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/referrals$/);
     if (referralsMatch) {
       const guildId = referralsMatch[1];
       if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Referral records require MySQL storage to be enabled." });
