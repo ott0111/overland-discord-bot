@@ -33,5 +33,9 @@ export async function createModerationAction(guildId, input) {
 
 export async function listModerationActions(guildId, limit = 100) {
   const [rows] = await getPool().execute("SELECT ma.id, ma.case_number AS caseId, ma.action_type AS action, ma.reason, ma.duration_minutes AS durationMinutes, ma.actor_id AS moderatorId, ma.created_at AS at, tu.discord_id AS targetId, tu.username AS target, au.username AS moderator FROM moderation_actions ma INNER JOIN discord_members tdm ON tdm.id = ma.target_member_id INNER JOIN users tu ON tu.id = tdm.user_id LEFT JOIN users au ON au.discord_id = ma.actor_id WHERE ma.guild_id = ? ORDER BY ma.created_at DESC LIMIT ?", [guildId, Math.min(200, Math.max(1, Number(limit) || 100))]);
-  return rows.map((row) => ({ ...row, caseId: Number(row.caseId), duration: row.durationMinutes ? row.durationMinutes + " minutes" : null }));
+  return rows.map((row) => ({
+    id: row.id, caseId: Number(row.caseId), type: row.action, reason: row.reason,
+    actorId: row.moderatorId, durationMinutes: row.durationMinutes == null ? null : Number(row.durationMinutes),
+    createdAt: row.at, target: { user: { username: row.target } }, targetDiscordId: row.targetId,
+  }));
 }
