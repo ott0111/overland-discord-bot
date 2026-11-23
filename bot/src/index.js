@@ -4,7 +4,7 @@ import {loadCommands} from "./commands/loader.js";
 import {loadStore,getGuild,getMember,saveStore} from "./store.js";
 import {embed} from "./commands/helpers.js";
 import {checkProgression,syncDiscordRole} from "./services/roles.js";
-import {recordJoin,processReferralMilestones} from "./services/referrals.js";
+import {recordJoin,processReferralMilestones,createInvite} from "./services/referrals.js";
 import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
 import {closePool} from "./db/mysql.js";
@@ -150,6 +150,7 @@ async function handleInteraction(i){
 }
 client.on(Events.InteractionCreate,handleInteraction);
 registerAutomations(client);
+client.on(Events.InviteCreate,async invite=>{try{if(invite.guild&&invite.inviter)await createInvite(invite.guild.id,invite.inviter,invite);}catch(e){console.error("[InviteCreate]",e.message);}});
 client.on(Events.GuildMemberAdd,async member=>{
  try{
   const g=getGuild(member.guild.id);g.stats.joins++;const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
