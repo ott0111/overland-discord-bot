@@ -165,3 +165,13 @@ Referral migration has now started:
 - The JSON importer now maps historical referral and invite records into normalized tables without modifying the source JSON.
 
 Referral migration is not yet complete. The legacy invite/reward history must be reconciled against a disposable MySQL database, and the milestone processor requires integration coverage for duplicate joins, self-referrals, suspicious referrals, verification reward idempotency, retention, and Comrade conversion. Do not enable production MySQL mode based on this partial cutover.
+
+## Phase 3.10: Moderation history cutover
+
+- Added a normalized moderation repository for case creation and dashboard history reads.
+- Bot moderation commands now write their action records to MySQL when `OVERLAND_STORAGE=mysql`; JSON mode remains available as the compatibility path.
+- Dashboard moderation history now reads through Core API and enforces `moderation.view`.
+- Migration 0007 adds persistent case numbers and seeds moderation history view permissions.
+- Historical moderation records are mapped by the JSON importer.
+
+This migrates the moderation case-history data path only. Automod settings, blacklist records, anti-raid configuration, and all moderation configuration ownership still require a dedicated configuration migration. Test action logging, concurrent case numbering, missing/departed members, and history parity against a disposable MySQL database before production.
