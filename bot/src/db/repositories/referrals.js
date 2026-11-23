@@ -36,14 +36,14 @@ export async function recordReferralJoin(guildId, user, inviteCode) {
   try {
     await connection.beginTransaction();
     const referred = await resolveMember(connection, guildId, user);
-    const [invites] = await connection.execute("SELECT inviter_id AS inviterId FROM invite_tracking WHERE guild_id = ? AND invite_code = ? LIMIT 1 FOR UPDATE", [guildId, String(inviteCode)]);
+    const [invites] = await connection.execute("SELECT inviter_id AS inviterId, uses FROM invite_tracking WHERE guild_id = ? AND invite_code = ? LIMIT 1 FOR UPDATE", [guildId, String(inviteCode)]);
     const inviterId = invites[0]?.inviterId;
     if (!inviterId || inviterId === referred.discordId) { await connection.commit(); return null; }
     const referrer = await resolveMember(connection, guildId, inviterId);
     const id = crypto.randomUUID();
     await connection.execute("INSERT IGNORE INTO referrals (id, guild_id, referrer_member_id, referred_member_id, invite_code) VALUES (?, ?, ?, ?, ?)", [id, guildId, referrer.id, referred.id, String(inviteCode)]);
     const [rows] = await connection.execute("SELECT r.id, r.referrer_member_id AS referrerId, r.referred_member_id AS referredId, r.invite_code AS inviteCode, r.verified, r.retained_7d AS retained7d, r.became_comrade AS becameComrade, r.suspicious, r.created_at AS createdAt FROM referrals r WHERE r.guild_id = ? AND r.referrer_member_id = ? AND r.referred_member_id = ? LIMIT 1", [guildId, referrer.id, referred.id]);
-    await connection.execute("UPDATE invite_tracking SET uses = GREATEST(uses, ?) WHERE guild_id = ? AND invite_code = ?", [Number((await connection.execute("SELECT uses FROM invite_tracking WHERE guild_id = ? AND invite_code = ?", [guildId, String(inviteCode)]))[0][0]?.uses || 0) + 1, guildId, String(inviteCode)]);
+    await connection.execute("UPDATE invite_tracking SET uses = ? WHERE guild_id = ? AND invite_code = ?", [Number(invites[0].uses || 0) + 1, guildId, String(inviteCode)]);
     await connection.commit();
     return rows[0] || null;
   } catch (error) {
@@ -78,7 +78,7 @@ export async function processReferralMilestonesNormalized(guildId, presentDiscor
   const awarded = [];
   try {
     await connection.beginTransaction();
-    const [rows] = await connection.execute("SELECT r.id, r.referrer_member_id AS referrerId, r.referred_member_id AS referredId, r.retained_7d AS retained7d, r.became_comrade AS becameComrade, u.discord_id AS referredDiscordId, pb.overpoints FROM referrals r INNER JOIN discord_members dm ON dm.id = r.referred_member_id INNER JOIN users u ON u.id = dm.user_id INNER JOIN point_balances pb ON pb.member_id = r.referrer_member_id WHERE r.guild_id = ? AND r.verified = TRUE AND r.suspicious = FALSE FOR UPDATE", [guildId]);
+    const [rows] = await connection.execute("SELECT r.id, r.referrer_member_id AS referrerId, r.referred_member_id AS referredId, r.retained_7d AS retained7d, r.became_comrade AS becameComrade, u.discord_id AS referredDiscordId, EXISTS(SELECT 1 FROM member_roles mr INNER JOIN roles ro ON ro.id = mr.role_id WHERE mr.guild_id = r.guild_id AND mr.member_id = r.referred_member_id AND ro.name = 'Comrade') AS hasComrade FROM referrals r INNER JOIN discord_members dm ON dm.id = r.referred_member_id INNER JOIN users u ON u.id = dm.user_id WHERE r.guild_id = ? AND r.verified = TRUE AND r.suspicious = FALSE FOR UPDATE", [guildId]);
     for (const row of rows) {
       const present = presentDiscordIds.has(row.referredDiscordId);
       if (!row.retained7d && present) {
@@ -88,6 +88,11 @@ export async function processReferralMilestonesNormalized(guildId, presentDiscor
           await awardMilestone(connection, guildId, row, retentionReward, "retained:" + row.id, "REFERRAL_RETENTION", "Referral retained for seven days");
           awarded.push({ memberId: row.referredDiscordId, type: "retained" });
         }
+      }
+      if (!row.becameComrade && row.hasComrade) {
+        await connection.execute("UPDATE referrals SET became_comrade = TRUE WHERE id = ? AND became_comrade = FALSE", [row.id]);
+        await awardMilestone(connection, guildId, row, comradeReward, "comrade:" + row.id, "REFERRAL_COMRADE", "Referral became a Comrade");
+        awarded.push({ memberId: row.referredDiscordId, type: "comrade" });
       }
     }
     await connection.commit();
