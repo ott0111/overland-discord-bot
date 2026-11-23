@@ -173,7 +173,7 @@ async function importGuild(pool, guildId, guildData) {
   for (const action of Array.isArray(guildData.moderation) ? guildData.moderation : []) {
     const targetId = memberIds.get(String(action.targetId || action.memberId || ""));
     if (!targetId) continue;
-    const durationMatch = String(action.duration || action.reason || "").match(/(\\d+)\\s+minutes?/i);
+    const durationMatch = String(action.duration || action.reason || "").match(/(\d+)\s+minutes?/i);
     const durationMinutes = durationMatch ? Number(durationMatch[1]) : null;
     const actionId = stableId("moderation", guildId + ":" + (action.id || JSON.stringify(action)));
     await pool.execute(
