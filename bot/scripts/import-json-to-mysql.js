@@ -170,6 +170,18 @@ async function importGuild(pool, guildId, guildData) {
     );
   }
 
+  for (const action of Array.isArray(guildData.moderation) ? guildData.moderation : []) {
+    const targetId = memberIds.get(String(action.targetId || action.memberId || ""));
+    if (!targetId) continue;
+    const durationMatch = String(action.duration || action.reason || "").match(/(\\d+)\\s+minutes?/i);
+    const durationMinutes = durationMatch ? Number(durationMatch[1]) : null;
+    const actionId = stableId("moderation", guildId + ":" + (action.id || JSON.stringify(action)));
+    await pool.execute(
+      "INSERT IGNORE INTO moderation_actions (id, guild_id, target_member_id, actor_id, case_number, action_type, reason, duration_minutes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [actionId, guildId, targetId, String(action.moderatorId || action.actorId || "SYSTEM").slice(0, 20), Math.max(0, Number(action.caseId || 0)), String(action.action || action.type || "WARN").toUpperCase().slice(0, 40), String(action.reason || "No reason provided").slice(0, 4000), durationMinutes, asDate(action.at || action.createdAt) || new Date()],
+    );
+  }
+
   for (const referral of Array.isArray(guildData.referrals) ? guildData.referrals : []) {
     const referrerId = memberIds.get(String(referral.referrerId || referral.referrerMemberId || ""));
     const referredId = memberIds.get(String(referral.referredId || referral.referredMemberId || ""));
