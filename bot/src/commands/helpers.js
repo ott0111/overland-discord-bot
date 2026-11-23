@@ -55,10 +55,12 @@ export function command(data, execute) { return { data, execute }; }
 
 export async function logModeration(i, action, target, reason, extra = {}) {
   const g = getGuild(i.guildId);
+  const durationLabel = extra.duration || String(reason || "").match(/\\d+\\s+minutes?/i)?.[0] || null;
+  const durationMinutes = extra.durationMinutes ?? (Number(String(reason || "").match(/(\\d+)\\s+minutes?/i)?.[1]) || null);
   const entry = process.env.OVERLAND_STORAGE === "mysql"
     ? await createModerationAction(i.guildId, {
         action, target, actorId: i.user.id, reason: reason || "No reason provided",
-        durationMinutes: extra.durationMinutes ?? null, duration: extra.duration || null,
+        durationMinutes, duration: durationLabel,
       })
     : (() => {
         const caseId = g.moderation.reduce((max, item) => Math.max(max, Number(item.caseId) || 0), 0) + 1;
@@ -83,7 +85,7 @@ export async function logModeration(i, action, target, reason, extra = {}) {
           { name: "Moderator", value: i.user.tag, inline: true },
           { name: "Reason", value: String(entry.reason || reason || "No reason provided").slice(0, 1024), inline: false }
         );
-      if (extra.duration) log.addFields({ name: "Duration", value: extra.duration, inline: true });
+      if (durationLabel) log.addFields({ name: "Duration", value: durationLabel, inline: true });
       await channel.send({ embeds: [log] }).catch(() => {});
     }
   }
