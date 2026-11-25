@@ -72,9 +72,9 @@ async function importGuild(pool, guildId, guildData) {
     const actualUserId = users[0]?.id || userId;
     const memberId = stableId("mbr", guildId + ":" + discordId);
     await pool.execute(
-      "INSERT IGNORE INTO discord_members (id, guild_id, user_id, joined_at, verified_at, x_follow_verified, x_follow_verified_at, is_suspicious, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      "INSERT IGNORE INTO discord_members (id, guild_id, user_id, joined_at, left_at, verified_at, x_follow_verified, x_follow_verified_at, is_suspicious, profile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
       [
-        memberId, guildId, actualUserId, asDate(member.joinedAt), asDate(member.verifiedAt),
+        memberId, guildId, actualUserId, asDate(member.joinedAt), asDate(member.leftAt || member.left_at), asDate(member.verifiedAt),
         Boolean(member.xFollowVerified), asDate(member.xFollowVerifiedAt), Boolean(member.suspicious),
         JSON.stringify({
           streak: Number(member.streak || 0),
