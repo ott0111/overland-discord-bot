@@ -116,14 +116,15 @@ async function resolveRoleMember(connection, guildId, user) {
   const discordId = String(typeof user === "string" ? user : user.id);
   const username = String(typeof user === "string" ? discordId : user.username || user.globalName || discordId).slice(0, 100);
   await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
-  const userId = "discord:" + discordId;
+  const candidateUserId = "discord:" + discordId;
   await connection.execute(
     "INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)",
-    [userId, discordId, username],
+    [candidateUserId, discordId, username],
   );
+  const [users] = await connection.execute("SELECT id FROM users WHERE discord_id = ? LIMIT 1", [discordId]);
   await connection.execute(
     "INSERT IGNORE INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?)",
-    ["member:" + guildId + ":" + discordId, guildId, userId],
+    ["member:" + guildId + ":" + discordId, guildId, users[0].id],
   );
   const [rows] = await connection.execute(
     "SELECT dm.id, dm.verified_at AS verifiedAt, dm.x_follow_verified AS xFollowVerified, dm.is_suspicious AS isSuspicious, dm.profile, u.discord_id AS discordId FROM discord_members dm INNER JOIN users u ON u.id = dm.user_id WHERE dm.guild_id = ? AND u.discord_id = ? LIMIT 1",
