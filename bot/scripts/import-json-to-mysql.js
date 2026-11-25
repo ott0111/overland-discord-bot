@@ -423,7 +423,7 @@ async function importGuild(pool, guildId, guildData) {
       const id = stableId("community", guildId + ":" + recordType + ":" + (record.id || JSON.stringify(record)));
       await pool.execute(
         "INSERT IGNORE INTO community_records (id, guild_id, record_type, status, subject_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        [id, guildId, recordType, record.status ? String(record.status).slice(0, 40) : null, record.userId || record.memberId || record.targetId || null, record.actorId || record.createdBy || null, JSON.stringify(record), asDate(record.createdAt || record.at || record.expiresAt) || new Date()],
+        [id, guildId, recordType, record.status ? String(record.status).slice(0, 40) : null, (/^\\d{17,20}$/.test(String(record.userId || record.memberId || record.targetId || "")) ? String(record.userId || record.memberId || record.targetId) : null), (/^\\d{17,20}$/.test(String(record.actorId || record.createdBy || "")) ? String(record.actorId || record.createdBy) : null), JSON.stringify(record), asDate(record.createdAt || record.at || record.expiresAt) || new Date()],
       );
     }
   }
