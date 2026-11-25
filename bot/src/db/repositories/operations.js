@@ -146,3 +146,19 @@ export async function markXPostAnnounced(guildId, id, channelId) {
     [channelId, guildId, id],
   );
 }
+
+export async function getLatestXPostId(guildId) {
+  const [rows] = await getPool().execute(
+    "SELECT post_id AS postId FROM x_posts WHERE guild_id = ? AND post_id NOT LIKE 'manual-%' ORDER BY created_at DESC LIMIT 1",
+    [guildId],
+  );
+  return rows[0]?.postId || null;
+}
+
+export async function insertXPost(guildId, post) {
+  const [result] = await getPool().execute(
+    "INSERT IGNORE INTO x_posts (id, guild_id, post_id, author_username, post_text, url, media_urls, is_reply, is_repost, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    [crypto.randomUUID(), guildId, String(post.id), String(post.username || "unknown").replace(/^@/, "").slice(0, 100), String(post.text || "").slice(0, 10000), String(post.url), JSON.stringify(Array.isArray(post.mediaUrls) ? post.mediaUrls : []), Boolean(post.isReply), Boolean(post.isRepost), post.createdAt ? new Date(post.createdAt) : new Date()],
+  );
+  return result.affectedRows === 1;
+}
