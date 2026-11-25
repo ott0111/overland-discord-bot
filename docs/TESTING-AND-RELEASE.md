@@ -307,3 +307,10 @@ The following are implementation tasks, not claims that they are already complet
 - [ ] Add migration failure/recovery and backup-restore rehearsal documentation.
 - [ ] Add a release checklist to the PR template or release process.
 - [ ] Confirm CI uses no production secrets or production database access.
+
+
+## Phase 3 CI implementation update
+
+The Phase 3 database workflow now starts an isolated MySQL 8.4 service and runs the versioned migration runner plus repository integration tests against a disposable `overland_test` database. The integration suite currently covers configuration/settings mirroring, audit writes, imported-style member ID resolution, member join/message/leave activity, role assignment, idempotent economy awards, moderation case history, and overview aggregation.
+
+This is a useful foundation, not complete domain coverage. Ticket/reward state transitions, campaign submission review, referral milestone idempotency, X API polling/delivery, full importer reconciliation, and restore rehearsal remain explicit test gates. A successful syntax/build/test run does not imply production migration approval.
