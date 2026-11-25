@@ -390,6 +390,44 @@ async function importGuild(pool, guildId, guildData) {
       [ticketId,guildId,String(ticket.category || "support").slice(0,100),ticket.channelId || null,memberId,status,ticket.claimedBy || null,Number.isInteger(ticket.rating)?ticket.rating:null,asDate(ticket.closedAt),asDate(ticket.createdAt) || new Date()],
     );
   }
+
+  for (const post of Array.isArray(guildData.xPosts) ? guildData.xPosts : []) {
+    const postId = String(post.postId || post.id || "").slice(0, 40);
+    if (!postId) continue;
+    const id = stableId("xpost", guildId + ":" + postId);
+    await pool.execute(
+      "INSERT IGNORE INTO x_posts (id, guild_id, post_id, author_username, post_text, url, media_urls, is_reply, is_repost, announced_at, announced_channel_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, guildId, postId, String(post.authorUsername || "OverlandFinance").slice(0, 100), String(post.text || "").slice(0, 10000), String(post.url || "https://x.com"), JSON.stringify(Array.isArray(post.mediaUrls) ? post.mediaUrls : []), Boolean(post.isReply), Boolean(post.isRepost), asDate(post.announcedAt), post.announcedChannelId || null, asDate(post.createdAt) || new Date()],
+    );
+  }
+
+  for (const entry of Array.isArray(guildData.audit) ? guildData.audit : []) {
+    const id = stableId("audit", guildId + ":" + (entry.id || JSON.stringify(entry)));
+    await pool.execute(
+      "INSERT IGNORE INTO audit_logs (id, guild_id, actor_id, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [id, guildId, entry.actorId || entry.discordId || null, String(entry.action || "legacy.operation").slice(0, 120), String(entry.entityType || entry.resource || "Legacy").slice(0, 120), entry.entityId ? String(entry.entityId).slice(0, 190) : null, JSON.stringify(entry.details && typeof entry.details === "object" ? entry.details : {}), asDate(entry.createdAt || entry.at) || new Date()],
+    );
+  }
+
+  const communityCollections = [
+    ["suggestions", "SUGGESTION"],
+    ["reports", "REPORT"],
+    ["appeals", "APPEAL"],
+    ["vouches", "VOUCH"],
+    ["blacklist", "BLACKLIST"],
+    ["tempRoles", "TEMP_ROLE"],
+    ["reminders", "REMINDER"],
+  ];
+  for (const [collection, recordType] of communityCollections) {
+    for (const record of Array.isArray(guildData[collection]) ? guildData[collection] : []) {
+      const id = stableId("community", guildId + ":" + recordType + ":" + (record.id || JSON.stringify(record)));
+      await pool.execute(
+        "INSERT IGNORE INTO community_records (id, guild_id, record_type, status, subject_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [id, guildId, recordType, record.status ? String(record.status).slice(0, 40) : null, record.userId || record.memberId || record.targetId || null, record.actorId || record.createdBy || null, JSON.stringify(record), asDate(record.createdAt || record.at || record.expiresAt) || new Date()],
+      );
+    }
+  }
+
 }
 
 async function main() {
@@ -447,6 +485,7 @@ async function main() {
   }
   console.log("[Import] Compatibility rows inserted: " + inserted + "; existing rows skipped: " + skipped + ".");
   console.log("[Import] Normalized identity, balances, roles, achievements, campaigns, submissions, transactions, staff, rewards, reward claims, and tickets imported idempotently.");
+  console.log("[Import] Historical X posts, audit events and community records were also imported where source data was present.");
   console.log("[Import] The original JSON file was not changed or deleted.");
 }
 
