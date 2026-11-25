@@ -30,7 +30,7 @@ export async function addTeamMember(guildId, input) {
   const username = String(input.username).trim();
   const userId = "discord:" + discordId;
   let memberId;
-  const teamId = crypto.randomUUID();
+  let teamId = crypto.randomUUID();
   try {
     await connection.beginTransaction();
     await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
@@ -43,10 +43,20 @@ export async function addTeamMember(guildId, input) {
     memberId = members[0].id;
     const [groups] = await connection.execute("SELECT id FROM permission_groups WHERE name = ?", [groupName]);
     if (!groups.length) throw Object.assign(new Error("Permission group has not been seeded"), { status: 400 });
-    await connection.execute("INSERT INTO internal_team_members (id, guild_id, member_id, discord_id, username, public_role, job_title, department, responsibilities, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
-      teamId, guildId, memberId, discordId, username, String(input.publicRole || input.jobTitle).trim(),
-      String(input.jobTitle).trim(), String(input.department).trim(), input.responsibilities?.trim() || null, groups[0].id,
-    ]);
+    const [existing] = await connection.execute("SELECT id, status FROM internal_team_members WHERE guild_id = ? AND discord_id = ? LIMIT 1 FOR UPDATE", [guildId, discordId]);
+    if (existing.length) {
+      if (existing[0].status === "ACTIVE") throw Object.assign(new Error("Team member already exists"), { status: 409 });
+      teamId = existing[0].id;
+      await connection.execute(
+        "UPDATE internal_team_members SET member_id = ?, username = ?, public_role = ?, job_title = ?, department = ?, responsibilities = ?, group_id = ?, status = 'ACTIVE', updated_at = CURRENT_TIMESTAMP(3) WHERE guild_id = ? AND id = ?",
+        [memberId, username, String(input.publicRole || input.jobTitle).trim(), String(input.jobTitle).trim(), String(input.department).trim(), input.responsibilities?.trim() || null, groups[0].id, guildId, teamId],
+      );
+    } else {
+      await connection.execute("INSERT INTO internal_team_members (id, guild_id, member_id, discord_id, username, public_role, job_title, department, responsibilities, group_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [
+        teamId, guildId, memberId, discordId, username, String(input.publicRole || input.jobTitle).trim(),
+        String(input.jobTitle).trim(), String(input.department).trim(), input.responsibilities?.trim() || null, groups[0].id,
+      ]);
+    }
     await connection.commit();
     const [rows] = await pool.execute(SELECT_TEAM + " WHERE t.guild_id = ? AND t.id = ? GROUP BY t.id", [guildId, teamId]);
     return normalizeRows(rows)[0];
