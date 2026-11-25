@@ -560,10 +560,15 @@ export function startCoreApi(client = null) {
             if (client && post.announcedChannelId) {
               const channel = await client.channels.fetch(post.announcedChannelId).catch(() => null);
               if (channel?.isTextBased()) {
-                await channel.send({ content: "**X UPDATE  /  @" + String((await getXDashboard(guildId)).config.username || "OverlandFinance").replace(/^@/, "") + "**\\n" + post.text + "\\n" + post.url, allowedMentions: { parse: [] } });
-                await markXPostAnnounced(guildId, post.id, post.announcedChannelId);
-                post.published = true;
-                post.announcedAt = new Date().toISOString();
+                try {
+                  await channel.send({ content: "**X UPDATE  /  @" + String((await getXDashboard(guildId)).config.username || "OverlandFinance").replace(/^@/, "") + "**\n" + post.text + "\n" + post.url, allowedMentions: { parse: [] } });
+                  await markXPostAnnounced(guildId, post.id, post.announcedChannelId);
+                  post.published = true;
+                  post.announcedAt = new Date().toISOString();
+                } catch (deliveryError) {
+                  post.published = false;
+                  post.deliveryError = deliveryError instanceof Error ? deliveryError.message : "Discord delivery failed";
+                }
               }
             }
             return send(res, 201, post);
