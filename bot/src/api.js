@@ -113,6 +113,28 @@ async function staffRecord(guildId, discordId) {
 }
 
 
+async function mirrorConfiguration(guildId, key, value) {
+  const guild = getGuild(guildId);
+  const settings = guild.settings;
+  if (key === "pointValues" && value && typeof value === "object") settings.pointValues = { ...settings.pointValues, ...value };
+  else if (key === "dailyLimits" && value && typeof value === "object") settings.dailyLimits = { ...settings.dailyLimits, ...value };
+  else if (key === "verification" && value && typeof value === "object") settings.verification = { ...settings.verification, ...value };
+  else if (key === "security" && value && typeof value === "object") settings.security = { ...settings.security, ...value };
+  else if (key === "xIntegration" && value && typeof value === "object") {
+    settings.x = {
+      ...settings.x,
+      username: value.username ?? settings.x.username,
+      channelId: value.announcementChannelId ?? settings.x.channelId,
+      ignoreReplies: value.ignoreReplies ?? settings.x.ignoreReplies,
+      ignoreReposts: value.ignoreReposts ?? settings.x.ignoreReposts,
+      enabled: value.enabled ?? settings.x.enabled,
+      pollMinutes: value.pollMinutes ?? settings.x.pollMinutes,
+    };
+  } else if (key === "infoContent" && value && typeof value === "object") settings.info = { ...settings.info, ...value };
+  else if (key === "welcomeConfig" && value && typeof value === "object") Object.assign(settings, value);
+  await saveStore();
+}
+
 async function readJsonBody(req, maxBytes = 20000) {
   let body = "";
   for await (const chunk of req) {
@@ -481,7 +503,9 @@ export function startCoreApi(client = null) {
           const actor = await requireTeamActor(guildId, input.actorId, "config.manage");
           if (typeof input.key !== "string" || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(input.key)) return send(res, 400, { error: "A valid configuration key is required" });
           if (/token|secret|password|credential|private.?key/i.test(input.key)) return send(res, 400, { error: "Secrets must be stored in private environment variables, not dashboard configuration." });
-          return send(res, 200, await setConfiguration(guildId, input.key, input.value, actor.discordId));
+          const saved = await setConfiguration(guildId, input.key, input.value, actor.discordId);
+          await mirrorConfiguration(guildId, input.key, input.value);
+          return send(res, 200, saved);
         }
         return send(res, 405, { error: "Method not allowed" });
       } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Configuration service unavailable" }); }
