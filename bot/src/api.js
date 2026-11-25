@@ -17,6 +17,9 @@ import { checkMemberAchievements } from "./db/repositories/achievements.js";
 import { evaluateMemberRoles } from "./db/repositories/roles.js";
 import { syncDiscordRole } from "./services/roles.js";
 import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getXDashboard, createManualXAnnouncement, getNormalizedOverview, markXPostAnnounced } from "./db/repositories/operations.js";
+import { listPermissionGroups, replaceGroupPermissions } from "./db/repositories/permissions.js";
+
+const PERMISSION_KEYS = ["team.view","team.manage","roles.assign","roles.manage","economy.adjust","economy.view","campaigns.manage","campaigns.review","community.manage","referrals.view","rewards.manage","rewards.review","tickets.view","tickets.manage","moderation.action","moderation.view","config.manage","x.manage","analytics.view","audit.view","achievements.manage"];
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -487,6 +490,27 @@ export function startCoreApi(client = null) {
         }
         return send(res, 405, { error: "Method not allowed" });
       } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Reward service unavailable" }); }
+    }
+
+    const permissionsMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/permissions$/);
+    if (permissionsMatch) {
+      const guildId = permissionsMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Permission management requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "team.view");
+          const groups = await listPermissionGroups(guildId);
+          return send(res, 200, { groups, allKeys: [...PERMISSION_KEYS] });
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "team.view");
+          if (actor.group !== "Owner") return send(res, 403, { error: "Only an Owner can change permission group definitions" });
+          if (!input.groupId || !Array.isArray(input.keys)) return send(res, 400, { error: "groupId and keys[] are required" });
+          return send(res, 200, await replaceGroupPermissions(guildId, String(input.groupId), input.keys, actor.discordId));
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Permission service unavailable" }); }
     }
 
     const configMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/config$/);
