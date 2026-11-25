@@ -108,10 +108,15 @@ async function ensureMemberRow(connection, guildId, user, joinedAt = null) {
   const discordId = String(typeof user === "string" ? user : user.id);
   const username = String(typeof user === "string" ? discordId : user.username || user.globalName || discordId).slice(0, 100);
   await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
-  const userId = "discord:" + discordId;
-  await connection.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)", [userId, discordId, username]);
-  const memberId = "member:" + guildId + ":" + discordId;
-  await connection.execute("INSERT INTO discord_members (id, guild_id, user_id, joined_at, left_at) VALUES (?, ?, ?, ?, NULL) ON DUPLICATE KEY UPDATE joined_at = COALESCE(joined_at, VALUES(joined_at)), left_at = NULL", [memberId, guildId, userId, joinedAt ? new Date(joinedAt) : null]);
+  const candidateUserId = "discord:" + discordId;
+  await connection.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)", [candidateUserId, discordId, username]);
+  const [users] = await connection.execute("SELECT id FROM users WHERE discord_id = ? LIMIT 1", [discordId]);
+  const userId = users[0].id;
+  const candidateMemberId = "member:" + guildId + ":" + discordId;
+  await connection.execute("INSERT IGNORE INTO discord_members (id, guild_id, user_id, joined_at, left_at) VALUES (?, ?, ?, ?, NULL)", [candidateMemberId, guildId, userId, joinedAt ? new Date(joinedAt) : null]);
+  const [members] = await connection.execute("SELECT id FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, userId]);
+  const memberId = members[0].id;
+  await connection.execute("UPDATE discord_members SET joined_at = COALESCE(joined_at, ?), left_at = NULL WHERE id = ?", [joinedAt ? new Date(joinedAt) : null, memberId]);
   await connection.execute("INSERT IGNORE INTO point_balances (member_id, guild_id) VALUES (?, ?)", [memberId, guildId]);
   return memberId;
 }
