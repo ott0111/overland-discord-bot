@@ -30,9 +30,15 @@ test("normalized MySQL migrations and repositories work against an isolated test
     const auditRows = await listAuditLogs(guildId, 10);
     assert.ok(auditRows.some((row) => row.id === audit.id && row.details.ok === true));
 
+    const legacyUserId = "legacy-user-" + guildId;
+    const legacyMemberId = "legacy-member-" + guildId;
+    await pool.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?)", [legacyUserId, userId, "Integration Tester"]);
+    await pool.execute("INSERT INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?)", [legacyMemberId, guildId, legacyUserId]);
+    await pool.execute("INSERT INTO point_balances (member_id, guild_id) VALUES (?, ?)", [legacyMemberId, guildId]);
     await recordGuildMemberJoin(guildId, { id: userId, username: "Integration Tester" }, new Date());
     await recordGuildMemberMessage(guildId, { id: userId, username: "Integration Tester" });
-    const [activity] = await pool.execute("SELECT message_count FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, "discord:" + userId]);
+    const [activity] = await pool.execute("SELECT id, message_count FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
+    assert.equal(activity[0]?.id, legacyMemberId, "repository must reuse imported non-deterministic member IDs");
     assert.equal(Number(activity[0]?.message_count), 1);
     const role = await createRole(guildId, { name: "Integration Citizen", description: "Temporary test role", discordRoleId: null, config: { requireVerified: false } });
     assert.ok((await listRoles(guildId)).some((row) => row.id === role.id));
@@ -50,7 +56,7 @@ test("normalized MySQL migrations and repositories work against an isolated test
     assert.ok((await listModerationActions(guildId, 10)).some((row) => row.id === action.id));
 
     await recordGuildMemberLeave(guildId, userId);
-    const [departed] = await pool.execute("SELECT left_at FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, "discord:" + userId]);
+    const [departed] = await pool.execute("SELECT left_at FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
     assert.ok(departed[0]?.left_at);
     const overview = await getNormalizedOverview(guildId);
     assert.equal(overview.db, "ok");
