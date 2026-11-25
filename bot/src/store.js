@@ -129,7 +129,7 @@ export function saveStore() {
             ["security", settings.security],
             ["infoContent", settings.info],
             ["xIntegration", settings.x ? {
-              enabled: Boolean(x.enabled), username: x.username || null,
+              enabled: x.enabled !== false && Boolean(x.username && x.channelId), username: x.username || null,
               announcementChannelId: x.channelId || null, ignoreReplies: x.ignoreReplies !== false,
               ignoreReposts: x.ignoreReposts !== false, pollMinutes: Number(x.pollMinutes || 15),
               lastPostId: x.lastPostId || null,
