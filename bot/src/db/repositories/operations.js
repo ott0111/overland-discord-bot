@@ -41,6 +41,28 @@ export async function setConfiguration(guildId, key, value, actorId) {
       "INSERT INTO bot_configuration (id, guild_id, config_key, config_value, updated_by) VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_by = VALUES(updated_by)",
       [crypto.randomUUID(), guildId, normalizedKey, JSON.stringify(value ?? null), actorId || null],
     );
+    const mirrorValues = {
+      pointValues: ["$.pointValues", value],
+      dailyLimits: ["$.dailyLimits", value],
+      verification: ["$.verification", value],
+      security: ["$.security", value],
+      infoContent: ["$.info", value],
+      xIntegration: ["$.x", {
+        enabled: Boolean(value?.enabled),
+        username: value?.username || null,
+        channelId: value?.announcementChannelId || value?.channelId || null,
+        ignoreReplies: value?.ignoreReplies !== false,
+        ignoreReposts: value?.ignoreReposts !== false,
+        pollMinutes: Number(value?.pollMinutes || 15),
+        lastPostId: value?.lastPostId || null,
+      }],
+    };
+    if (mirrorValues[normalizedKey]) {
+      const [jsonPath, mirrorValue] = mirrorValues[normalizedKey];
+      await connection.execute("UPDATE guilds SET settings = JSON_SET(settings, ?, CAST(? AS JSON)) WHERE guild_id = ?", [jsonPath, JSON.stringify(mirrorValue), guildId]);
+    } else if (normalizedKey === "welcomeConfig" && value && typeof value === "object") {
+      await connection.execute("UPDATE guilds SET settings = JSON_MERGE_PATCH(settings, CAST(? AS JSON)) WHERE guild_id = ?", [JSON.stringify(value), guildId]);
+    }
     await connection.execute(
       "INSERT INTO audit_logs (id, guild_id, actor_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, 'config.update', 'BotConfiguration', ?, ?)",
       [crypto.randomUUID(), guildId, actorId || null, normalizedKey, JSON.stringify({ key: normalizedKey })],
