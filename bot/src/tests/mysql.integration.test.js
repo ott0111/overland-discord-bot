@@ -6,6 +6,7 @@ import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, get
 import { createRole, listRoles, grantMemberRole, evaluateMemberRoles } from "../db/repositories/roles.js";
 import { createModerationAction, listModerationActions } from "../db/repositories/moderation.js";
 import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "../db/repositories/members.js";
+import { awardNormalized } from "../db/repositories/economy-commands.js";
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION_TESTS === "1";
 const databaseName = process.env.DATABASE_NAME || "";
@@ -25,6 +26,10 @@ test("normalized MySQL migrations and repositories work against an isolated test
     assert.equal(saved.key, "integration-test");
     const config = await listConfiguration(guildId);
     assert.equal(config.find((row) => row.key === "integration-test")?.value?.enabled, true);
+    await setConfiguration(guildId, "dailyLimits", { OVERPOINTS: 100, OVERCREDITS: 100 }, userId);
+    const [guildSettings] = await pool.execute("SELECT settings FROM guilds WHERE guild_id = ? LIMIT 1", [guildId]);
+    const mirroredSettings = typeof guildSettings[0].settings === "string" ? JSON.parse(guildSettings[0].settings) : guildSettings[0].settings;
+    assert.equal(mirroredSettings.dailyLimits.OVERPOINTS, 100);
 
     const audit = await appendAuditLog(guildId, { actorId: userId, action: "integration.test", entityType: "Test", entityId: "run", details: { ok: true } });
     const auditRows = await listAuditLogs(guildId, 10);
@@ -40,6 +45,11 @@ test("normalized MySQL migrations and repositories work against an isolated test
     const [activity] = await pool.execute("SELECT id, message_count FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
     assert.equal(activity[0]?.id, legacyMemberId, "repository must reuse imported non-deterministic member IDs");
     assert.equal(Number(activity[0]?.message_count), 1);
+    const award = await awardNormalized(guildId, { id: userId, username: "Integration Tester" }, { amount: 10, currency: "OVERPOINTS", category: "community", source: "INTEGRATION_TEST", idempotencyKey: "integration-award:" + guildId });
+    const duplicateAward = await awardNormalized(guildId, { id: userId, username: "Integration Tester" }, { amount: 10, currency: "OVERPOINTS", category: "community", source: "INTEGRATION_TEST", idempotencyKey: "integration-award:" + guildId });
+    assert.equal(award.duplicate, false);
+    assert.equal(duplicateAward.duplicate, true);
+
     const role = await createRole(guildId, { name: "Integration Citizen", description: "Temporary test role", discordRoleId: null, config: { requireVerified: false } });
     assert.ok((await listRoles(guildId)).some((row) => row.id === role.id));
     const granted = await grantMemberRole(guildId, { id: userId, username: "Integration Tester" }, role.name, userId);
