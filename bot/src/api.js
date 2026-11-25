@@ -18,6 +18,7 @@ import { evaluateMemberRoles } from "./db/repositories/roles.js";
 import { syncDiscordRole } from "./services/roles.js";
 import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getXDashboard, createManualXAnnouncement, getNormalizedOverview, markXPostAnnounced } from "./db/repositories/operations.js";
 import { listPermissionGroups, replaceGroupPermissions } from "./db/repositories/permissions.js";
+import { syncTeamCacheFromMySQL } from "./services/permissions.js";
 
 const PERMISSION_KEYS = ["team.view","team.manage","roles.assign","roles.manage","economy.adjust","economy.view","campaigns.manage","campaigns.review","community.manage","referrals.view","rewards.manage","rewards.review","tickets.view","tickets.manage","moderation.action","moderation.view","config.manage","x.manage","analytics.view","audit.view","achievements.manage"];
 
@@ -291,6 +292,7 @@ export function startCoreApi(client = null) {
           }
           if (input.groupName === "Owner" && actor.group !== "Owner") return send(res, 403, { error: "Only an existing Owner can appoint another Owner" });
           const record = await addTeamMember(guildId, input);
+          await syncTeamCacheFromMySQL(guildId);
           await appendAudit(guildId, actor.discordId, "team.add", record.id, { username: record.username, groupName: input.groupName });
           return send(res, 201, record);
         }
@@ -299,6 +301,7 @@ export function startCoreApi(client = null) {
           const actor = await requireTeamActor(guildId, input.actorId, "team.manage");
           if (!input.id) return send(res, 400, { error: "id is required" });
           const record = await updateTeamMember(guildId, String(input.id), input, actor.group === "Owner");
+          await syncTeamCacheFromMySQL(guildId);
           await appendAudit(guildId, actor.discordId, "team.update", record.id, { username: record.username });
           return send(res, 200, record);
         }
@@ -307,6 +310,7 @@ export function startCoreApi(client = null) {
           const id = url.searchParams.get("id");
           if (!id) return send(res, 400, { error: "id is required" });
           const result = await removeTeamMember(guildId, id, actor.group === "Owner");
+          await syncTeamCacheFromMySQL(guildId);
           await appendAudit(guildId, actor.discordId, "team.remove", id, { status: "REMOVED" });
           return send(res, 200, result);
         }
@@ -510,7 +514,9 @@ export function startCoreApi(client = null) {
           const actor = await requireTeamActor(guildId, input.actorId, "team.view");
           if (actor.group !== "Owner") return send(res, 403, { error: "Only an Owner can change permission group definitions" });
           if (!input.groupId || !Array.isArray(input.keys)) return send(res, 400, { error: "groupId and keys[] are required" });
-          return send(res, 200, await replaceGroupPermissions(guildId, String(input.groupId), input.keys, actor.discordId));
+          const result = await replaceGroupPermissions(guildId, String(input.groupId), input.keys, actor.discordId);
+          await syncTeamCacheFromMySQL(guildId);
+          return send(res, 200, result);
         }
         return send(res, 405, { error: "Method not allowed" });
       } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Permission service unavailable" }); }
