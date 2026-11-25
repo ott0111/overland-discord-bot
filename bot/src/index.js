@@ -10,6 +10,7 @@ import {startCoreApi} from "./api.js";
 import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
 import { registerXIntegration } from "./services/x-integration.js";
+import { syncTeamCacheFromMySQL } from "./services/permissions.js";
 import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
 import { getMemberVerification, acceptMemberRules, saveVerificationChallenge } from "./db/repositories/roles.js";
 import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "./db/repositories/members.js";
@@ -61,33 +62,6 @@ async function cacheInvites(guild){
   inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])));
   if(process.env.OVERLAND_STORAGE==="mysql")for(const invite of invites.values())if(invite.inviter)await createInvite(guild.id,invite.inviter,invite);
  }catch(e){console.warn("[Invites] Cannot read invite uses in "+guild.name+". Grant Manage Guild to track referrals.",e.message);}
-}
-async function announceXPosts(){
- const token=process.env.X_BEARER_TOKEN;if(!token)return;
- for(const guild of client.guilds.cache.values()){
-  const cfg=getGuild(guild.id).settings.x;if(!cfg.username||!cfg.channelId)continue;
-  try{
-   const userRes=await fetch("https://api.x.com/2/users/by/username/"+encodeURIComponent(cfg.username),{headers:{Authorization:"Bearer "+token}});
-   if(!userRes.ok)throw new Error("X user lookup HTTP "+userRes.status);
-   const user=(await userRes.json()).data;if(!user?.id)continue;
-   const params=new URLSearchParams({"tweet.fields":"referenced_tweets,attachments","max_results":"10"});
-   if(cfg.lastPostId)params.set("since_id",cfg.lastPostId);
-   const res=await fetch("https://api.x.com/2/users/"+user.id+"/tweets?"+params,{headers:{Authorization:"Bearer "+token}});
-   if(!res.ok)throw new Error("X timeline HTTP "+res.status);
-   const data=await res.json(),posts=(data.data||[]).reverse();
-   for(const p of posts){
-    const refs=p.referenced_tweets||[];
-    if(cfg.ignoreReplies&&refs.some(x=>x.type==="replied_to"))continue;
-    if(cfg.ignoreReposts&&refs.some(x=>x.type==="retweeted"))continue;
-    if(getGuild(guild.id).xPosts.some(x=>x.id===p.id))continue;
-    const ch=await guild.channels.fetch(cfg.channelId).catch(()=>null);
-    if(ch?.isTextBased())await ch.send({embeds:[embed("@"+cfg.username+" on X",p.text+"\n\nhttps://x.com/"+cfg.username+"/status/"+p.id)]});
-    getGuild(guild.id).xPosts.unshift({id:p.id,at:new Date().toISOString()});
-    cfg.lastPostId=p.id;
-   }
-   await saveStore();
-  }catch(e){console.error("[X] Poll failed for "+guild.name+":",e.message);}
- }
 }
 async function handleVerifyButton(i){
  const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;
@@ -200,13 +174,12 @@ client.once(Events.ClientReady,async ready=>{
   await syncCommands(appId);
  }catch(e){console.error("[Commands] FATAL: "+e.message);console.error("[Commands] Exiting because slash commands could not be registered. Fix the settings and restart.");process.exit(1);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
- const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){if(process.env.OVERLAND_STORAGE==="mysql")await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");else{const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}}if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();}
+ const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){if(process.env.OVERLAND_STORAGE==="mysql"){await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");await syncTeamCacheFromMySQL(g.id);}else{const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}}if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();}
  console.log("[Overland] Loaded "+commands.size+" modular commands.");
 });
-const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
 const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);
-async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();await closePool();process.exit(0);}
+async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving data.");clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();await closePool();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
 await ownerBootstrap();
