@@ -22,6 +22,12 @@ import { syncTeamCacheFromMySQL } from "./services/permissions.js";
 
 const PERMISSION_KEYS = ["team.view","team.manage","roles.assign","roles.manage","economy.adjust","economy.view","campaigns.manage","campaigns.review","community.manage","referrals.view","rewards.manage","rewards.review","tickets.view","tickets.manage","moderation.action","moderation.view","config.manage","x.manage","analytics.view","audit.view","achievements.manage"];
 
+function containsSecretField(value, depth = 0) {
+  if (!value || typeof value !== "object" || depth > 6) return false;
+  if (Array.isArray(value)) return value.some((item) => containsSecretField(item, depth + 1));
+  return Object.entries(value).some(([key, item]) => /token|secret|password|credential|private.?key/i.test(key) || containsSecretField(item, depth + 1));
+}
+
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
   const supplied = (req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -535,7 +541,7 @@ export function startCoreApi(client = null) {
           const input = await readJsonBody(req);
           const actor = await requireTeamActor(guildId, input.actorId, "config.manage");
           if (typeof input.key !== "string" || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(input.key)) return send(res, 400, { error: "A valid configuration key is required" });
-          if (/token|secret|password|credential|private.?key/i.test(input.key)) return send(res, 400, { error: "Secrets must be stored in private environment variables, not dashboard configuration." });
+          if (/token|secret|password|credential|private.?key/i.test(input.key) || containsSecretField(input.value)) return send(res, 400, { error: "Secrets must be stored in private environment variables, not dashboard configuration." });
           const saved = await setConfiguration(guildId, input.key, input.value, actor.discordId);
           await mirrorConfiguration(guildId, input.key, input.value);
           return send(res, 200, saved);
@@ -559,7 +565,7 @@ export function startCoreApi(client = null) {
           if (input.action === "config") {
             const current = await getXDashboard(guildId);
             const value = { ...current.config, ...(input.value && typeof input.value === "object" ? input.value : {}) };
-            if (["bearerToken", "apiKey", "apiSecret", "accessToken", "clientSecret"].some((key) => key in value)) return send(res, 400, { error: "X credentials must be configured as private environment variables, not stored in MySQL." });
+            if (containsSecretField(value)) return send(res, 400, { error: "X credentials must be configured as private environment variables, not stored in MySQL." });
             const saved = await setConfiguration(guildId, "xIntegration", value, actor.discordId);
             await mirrorConfiguration(guildId, "xIntegration", value);
             return send(res, 200, saved);
