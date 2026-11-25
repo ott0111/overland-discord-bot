@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import crypto from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getPool } from "./db/mysql.js";
@@ -33,6 +34,7 @@ const defaults = () => ({
 
 let database = { version: 1, guilds: {} };
 let saveQueue = Promise.resolve();
+const savedSettings = new Map();
 
 export async function loadStore() {
   if (process.env.OVERLAND_STORAGE === "mysql") {
@@ -111,6 +113,48 @@ export function saveStore() {
     if (process.env.OVERLAND_STORAGE === "mysql") {
       const pool = getPool();
       for (const [guildId, guildData] of Object.entries(database.guilds)) {
+        const settingsJson = JSON.stringify(guildData.settings || {});
+        const statsJson = JSON.stringify(guildData.stats || {});
+        await pool.execute(
+          "INSERT INTO guilds (guild_id, settings, stats) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE settings = VALUES(settings), stats = VALUES(stats)",
+          [guildId, settingsJson, statsJson],
+        );
+        if (savedSettings.get(guildId) !== settingsJson) {
+          const settings = guildData.settings || {};
+          const x = settings.x || {};
+          const configEntries = [
+            ["guildSettings", settings],
+            ["pointValues", settings.pointValues],
+            ["dailyLimits", settings.dailyLimits],
+            ["verification", settings.verification],
+            ["security", settings.security],
+            ["infoContent", settings.info],
+            ["xIntegration", settings.x ? {
+              enabled: Boolean(x.enabled), username: x.username || null,
+              announcementChannelId: x.channelId || null, ignoreReplies: x.ignoreReplies !== false,
+              ignoreReposts: x.ignoreReposts !== false, pollMinutes: Number(x.pollMinutes || 15),
+              lastPostId: x.lastPostId || null,
+            } : null],
+            ["welcomeConfig", {
+              welcomeChannelId: settings.welcomeChannelId || null,
+              leaveChannelId: settings.leaveChannelId || null,
+              eventLogChannelId: settings.eventLogChannelId || null,
+              welcomeMessage: settings.welcomeMessage || "Welcome {user} to {server}!",
+              welcomeEnabled: Boolean(settings.welcomeEnabled), welcomeDm: Boolean(settings.welcomeDm),
+            }],
+            ["voice", settings.voice],
+            ["roleIds", settings.roleIds],
+            ["roleMenus", settings.roleMenus],
+          ];
+          for (const [key, value] of configEntries) {
+            if (value === undefined || value === null) continue;
+            await pool.execute(
+              "INSERT INTO bot_configuration (id, guild_id, config_key, config_value, updated_by) VALUES (?, ?, ?, ?, NULL) ON DUPLICATE KEY UPDATE config_value = VALUES(config_value)",
+              [crypto.randomUUID(), guildId, key, JSON.stringify(value)],
+            );
+          }
+          savedSettings.set(guildId, settingsJson);
+        }
         await pool.execute(
           "INSERT INTO guild_state (guild_id, data, revision) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE data = VALUES(data), revision = revision + 1",
           [guildId, JSON.stringify(guildData)],
