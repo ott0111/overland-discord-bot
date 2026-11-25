@@ -17,12 +17,12 @@ interface Overview {
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "analytics.view");
+  const { session, error } = await requireStaff(req, "analytics.view");
   if (error) return error;
   const guildId = configuredGuildId();
   if (!guildId) return NextResponse.json({ error: "DISCORD_GUILD_ID is not configured" }, { status: 503 });
   try {
-    const data = await coreApiGet<Overview>("/v1/guilds/" + encodeURIComponent(guildId) + "/overview");
+    const data = await coreApiGet<Overview>("/v1/guilds/" + encodeURIComponent(guildId) + "/overview?actorId=" + encodeURIComponent(session!.discordId));
     return NextResponse.json(data, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     return NextResponse.json(
