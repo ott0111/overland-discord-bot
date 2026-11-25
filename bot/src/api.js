@@ -135,6 +135,9 @@ async function mirrorConfiguration(guildId, key, value) {
     };
   } else if (key === "infoContent" && value && typeof value === "object") settings.info = { ...settings.info, ...value };
   else if (key === "welcomeConfig" && value && typeof value === "object") Object.assign(settings, value);
+  else if (key === "voice" && value && typeof value === "object") settings.voice = { ...settings.voice, ...value };
+  else if (key === "roleIds" && value && typeof value === "object") settings.roleIds = { ...value };
+  else if (key === "roleMenus" && value && typeof value === "object") settings.roleMenus = { ...value };
   await saveStore();
 }
 
