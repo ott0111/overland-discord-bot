@@ -7,6 +7,7 @@ import { createRole, listRoles, grantMemberRole, evaluateMemberRoles } from "../
 import { createModerationAction, listModerationActions } from "../db/repositories/moderation.js";
 import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "../db/repositories/members.js";
 import { awardNormalized } from "../db/repositories/economy-commands.js";
+import { getGuild, saveStore, loadStore } from "../store.js";
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION_TESTS === "1";
 const databaseName = process.env.DATABASE_NAME || "";
@@ -75,6 +76,28 @@ test("normalized MySQL migrations and repositories work against an isolated test
     await recordGuildMemberLeave(guildId, userId);
     const [departed] = await pool.execute("SELECT left_at FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
     assert.ok(departed[0]?.left_at);
+    const previousStorage = process.env.OVERLAND_STORAGE;
+    process.env.OVERLAND_STORAGE = "mysql";
+    const guild = getGuild(guildId);
+    guild.suggestions.push({ id: "S-INTEGRATION", userId, idea: "MySQL persistence", status: "PENDING", createdAt: new Date().toISOString() });
+    guild.reports.push({ id: "R-INTEGRATION", reporterId: userId, targetId: "123456789012345679", details: "Test report", status: "OPEN", createdAt: new Date().toISOString() });
+    guild.appeals.push({ id: "A-INTEGRATION", userId, details: "Test appeal", status: "PENDING", createdAt: new Date().toISOString() });
+    guild.vouches.push({ fromId: userId, toId: "123456789012345679", details: "Test vouch", at: new Date().toISOString() });
+    guild.blacklist.push({ userId: "123456789012345679", reason: "Test only" });
+    guild.tempRoles.push({ userId, roleId: "123456789012345679", expiresAt: Date.now() + 60000, grantedBy: userId });
+    guild.reminders.push({ id: "RM-INTEGRATION", userId, channelId: "123456789012345678", text: "Test reminder", at: new Date(Date.now() + 60000).toISOString() });
+    await saveStore();
+    const [communityCounts] = await pool.execute("SELECT record_type, COUNT(*) AS total FROM community_records WHERE guild_id = ? GROUP BY record_type", [guildId]);
+    assert.equal(communityCounts.length, 7);
+    await loadStore();
+    assert.equal(getGuild(guildId).suggestions[0]?.id, "S-INTEGRATION");
+    getGuild(guildId).suggestions = [];
+    await saveStore();
+    const [suggestionRows] = await pool.execute("SELECT COUNT(*) AS total FROM community_records WHERE guild_id = ? AND record_type = 'SUGGESTION'", [guildId]);
+    assert.equal(Number(suggestionRows[0].total), 0);
+    if (previousStorage === undefined) delete process.env.OVERLAND_STORAGE;
+    else process.env.OVERLAND_STORAGE = previousStorage;
+
     const overview = await getNormalizedOverview(guildId);
     assert.equal(overview.db, "ok");
     assert.equal(typeof overview.members, "number");
