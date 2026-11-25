@@ -311,6 +311,6 @@ The following are implementation tasks, not claims that they are already complet
 
 ## Phase 3 CI implementation update
 
-The Phase 3 database workflow now starts an isolated MySQL 8.4 service and runs the versioned migration runner plus repository integration tests against a disposable `overland_test` database. The integration suite currently covers configuration/settings mirroring, audit writes, imported-style member ID resolution, member join/message/leave activity, role assignment, idempotent economy awards, moderation case history, and overview aggregation.
+The Phase 3 database workflow now starts an isolated MySQL 8.4 service and runs the versioned migration runner plus repository integration tests against a disposable `overland_test` database. The integration suite currently covers configuration/settings mirroring, audit writes, imported-style member ID resolution, member join/message/leave activity, role assignment, idempotent economy awards, moderation case history, overview aggregation, and transactional persistence/deletion of suggestions, reports, appeals, vouches, blacklist entries, temporary roles, and reminders.
 
 This is a useful foundation, not complete domain coverage. Ticket/reward state transitions, campaign submission review, referral milestone idempotency, X API polling/delivery, full importer reconciliation, and restore rehearsal remain explicit test gates. A successful syntax/build/test run does not imply production migration approval.
