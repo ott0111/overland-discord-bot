@@ -217,7 +217,7 @@ This migrates the moderation case-history data path only. Automod settings, blac
 
 - Verify the newest full Core CI and disposable MySQL workflow runs pass on the current branch head.
 - Expand MySQL integration coverage to every repository and workflow, especially ticket/reward transitions, referral milestones, campaign review/rewards, X polling/delivery, and migration reconciliation.
-- Complete remaining live community-record/blacklist workflows and any remaining dashboard or bot configuration consumers.
+- Add a dedicated dashboard review/management surface for community records if required; current bot commands and moderation checks persist through normalized MySQL with a compatibility cache.
 - Review all data import counts and reconcile source JSON against normalized MySQL in a disposable database.
 - Rotate the database password that was exposed in chat, privately configure the replacement in CoalByte, and confirm secure Core API connectivity without exposing MySQL publicly.
 - Production backup, dry-run review, reconciliation, explicit approval, and controlled cutover remain separate required steps.
