@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   const { session, error } = await requireStaff(req, "config.manage");
   if (error) return error;
   const guildId = configuredGuildId();
-  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
     return NextResponse.json(await coreApiGet("/v1/guilds/" + encodeURIComponent(guildId) + "/config?actorId=" + encodeURIComponent(session!.discordId)));
   } catch (err) { return failure(err); }
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "config.manage");
   if (error) return error;
   const guildId = configuredGuildId();
-  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   const body = await req.json().catch(() => null) as { key?: string; value?: unknown } | null;
   if (!body || typeof body.key !== "string" || !body.key.trim()) return NextResponse.json({ error: "key is required" }, { status: 400 });
   try {
