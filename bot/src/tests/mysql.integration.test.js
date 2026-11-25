@@ -18,7 +18,7 @@ test("normalized MySQL migrations and repositories work against an isolated test
     await runMigrations();
     const pool = getPool();
     const [migrations] = await pool.execute("SELECT name FROM core_migrations ORDER BY name");
-    assert.ok(migrations.length >= 7, "all currently numbered migrations should be applied");
+    assert.ok(migrations.length >= 8, "all currently numbered migrations should be applied");
 
     const saved = await setConfiguration(guildId, "integration-test", { enabled: true, count: 3 }, userId);
     assert.equal(saved.key, "integration-test");
