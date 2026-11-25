@@ -162,3 +162,18 @@ export async function insertXPost(guildId, post) {
   );
   return result.affectedRows === 1;
 }
+
+export async function saveXCursor(guildId, config) {
+  await getPool().execute(
+    "UPDATE bot_configuration SET config_value = ?, updated_at = CURRENT_TIMESTAMP(3) WHERE guild_id = ? AND config_key = 'xIntegration'",
+    [JSON.stringify(config), guildId],
+  );
+}
+
+export async function listPendingXPosts(guildId, limit = 10) {
+  const [rows] = await getPool().execute(
+    "SELECT id, post_id AS postId, author_username AS authorUsername, post_text AS text, url FROM x_posts WHERE guild_id = ? AND announced_at IS NULL AND post_id NOT LIKE 'manual-%' ORDER BY created_at ASC LIMIT ?",
+    [guildId, Math.min(25, Math.max(1, Number(limit) || 10))],
+  );
+  return rows;
+}
