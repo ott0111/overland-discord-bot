@@ -112,7 +112,7 @@ export async function createManualXAnnouncement(guildId, input, actorId) {
   if (!["https:", "http:"].includes(parsed.protocol)) throw Object.assign(new Error("Announcement URL must use HTTP or HTTPS"), { status: 400 });
   const config = await getConfiguration(guildId, "xIntegration", {});
   const id = crypto.randomUUID();
-  const postId = "manual-" + id;
+  const postId = "manual-" + id.replace(/-/g, "").slice(0, 32);
   const channelId = /^\d{17,20}$/.test(String(config.announcementChannelId || "")) ? String(config.announcementChannelId) : null;
   await getPool().execute(
     "INSERT INTO x_posts (id, guild_id, post_id, author_username, post_text, url, media_urls, is_reply, is_repost, announced_channel_id) VALUES (?, ?, ?, ?, ?, ?, JSON_ARRAY(), FALSE, FALSE, ?)",
