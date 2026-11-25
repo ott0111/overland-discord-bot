@@ -35,6 +35,8 @@ const defaults = () => ({
 let database = { version: 1, guilds: {} };
 let saveQueue = Promise.resolve();
 const savedSettings = new Map();
+const savedCommunity = new Map();
+const COMMUNITY_TYPES = [["suggestions", "SUGGESTION"], ["reports", "REPORT"], ["appeals", "APPEAL"], ["vouches", "VOUCH"], ["blacklist", "BLACKLIST"], ["tempRoles", "TEMP_ROLE"], ["reminders", "REMINDER"]];
 
 export async function loadStore() {
   if (process.env.OVERLAND_STORAGE === "mysql") {
@@ -46,7 +48,24 @@ export async function loadStore() {
       database.guilds[row.guild_id] = value;
     }
     for (const guild of Object.values(database.guilds)) normalizeGuild(guild);
-    console.log("[Store] Loaded " + rows.length + " guild record(s) from MySQL.");
+    const [communityRows] = await getPool().query("SELECT guild_id, record_type, payload FROM community_records");
+    const byGuild = new Map();
+    for (const row of communityRows) {
+      if (!byGuild.has(row.guild_id)) byGuild.set(row.guild_id, new Map());
+      const types = byGuild.get(row.guild_id);
+      if (!types.has(row.record_type)) types.set(row.record_type, []);
+      const payload = typeof row.payload === "string" ? JSON.parse(row.payload) : row.payload;
+      types.get(row.record_type).push(payload);
+    }
+    for (const [guildId, guild] of Object.entries(database.guilds)) {
+      const stored = byGuild.get(guildId) || new Map();
+      for (const [collection, type] of COMMUNITY_TYPES) {
+        const records = stored.get(type) || [];
+        if (records.length) guild[collection] = records;
+        if (records.length || !guild[collection]?.length) savedCommunity.set(guildId + ":" + type, JSON.stringify(guild[collection] || []));
+      }
+    }
+    console.log("[Store] Loaded " + rows.length + " guild record(s) and " + communityRows.length + " normalized community record(s) from MySQL.");
     return database;
   }
 
@@ -62,6 +81,63 @@ export async function loadStore() {
   }
   for (const guild of Object.values(database.guilds)) normalizeGuild(guild);
   return database;
+}
+
+function communityRecordId(guildId, type, record) {
+  let identity = record.id;
+  if (!identity) {
+    if (type === "VOUCH") identity = [record.fromId, record.toId, record.at].join(":");
+    else if (type === "TEMP_ROLE") identity = [record.userId, record.roleId, record.expiresAt].join(":");
+    else if (type === "BLACKLIST") identity = String(record.userId || record.targetId || JSON.stringify(record));
+    else if (type === "REMINDER") identity = [record.userId, record.channelId, record.at, record.text].join(":");
+    else identity = JSON.stringify(record);
+  }
+  return "community_" + crypto.createHash("sha256").update(guildId + ":" + type + ":" + String(identity)).digest("hex").slice(0, 40);
+}
+
+function validDiscordId(value) {
+  const id = String(value || "");
+  return /^\d{17,20}$/.test(id) ? id : null;
+}
+
+async function syncCommunityRecords(pool, guildId, guildData) {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    for (const [collection, type] of COMMUNITY_TYPES) {
+      const records = Array.isArray(guildData[collection]) ? guildData[collection] : [];
+      const snapshot = JSON.stringify(records);
+      const cacheKey = guildId + ":" + type;
+      if (savedCommunity.get(cacheKey) === snapshot) continue;
+      const ids = [];
+      for (const record of records) {
+        const id = communityRecordId(guildId, type, record);
+        ids.push(id);
+        const subjectId = validDiscordId(record.userId || record.targetId || record.toId || record.memberId);
+        const actorId = validDiscordId(record.reporterId || record.fromId || record.grantedBy || record.actorId || record.createdBy || record.userId);
+        const status = record.status || (type === "BLACKLIST" || type === "TEMP_ROLE" ? "ACTIVE" : type === "REMINDER" ? "SCHEDULED" : null);
+        const rawDate = record.createdAt || record.created_at || (type === "VOUCH" ? record.at : null);
+        const parsedDate = rawDate ? new Date(rawDate) : new Date();
+        const createdAt = Number.isNaN(parsedDate.getTime()) ? new Date() : parsedDate;
+        await connection.execute(
+          "INSERT INTO community_records (id, guild_id, record_type, status, subject_id, actor_id, payload, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status), subject_id = VALUES(subject_id), actor_id = VALUES(actor_id), payload = VALUES(payload), created_at = VALUES(created_at)",
+          [id, guildId, type, status ? String(status).slice(0, 40) : null, subjectId, actorId, JSON.stringify(record), createdAt],
+        );
+      }
+      if (ids.length) {
+        await connection.execute("DELETE FROM community_records WHERE guild_id = ? AND record_type = ? AND id NOT IN (" + ids.map(() => "?").join(",") + ")", [guildId, type, ...ids]);
+      } else {
+        await connection.execute("DELETE FROM community_records WHERE guild_id = ? AND record_type = ?", [guildId, type]);
+      }
+      savedCommunity.set(cacheKey, snapshot);
+    }
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 function normalizeGuild(guild) {
@@ -154,6 +230,7 @@ export function saveStore() {
           }
           savedSettings.set(guildId, settingsJson);
         }
+        await syncCommunityRecords(pool, guildId, guildData);
         await pool.execute(
           "INSERT INTO guild_state (guild_id, data, revision) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE data = VALUES(data), revision = revision + 1",
           [guildId, JSON.stringify(guildData)],
