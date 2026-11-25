@@ -101,6 +101,9 @@ function validDiscordId(value) {
 }
 
 async function syncCommunityRecords(pool, guildId, guildData) {
+  const changed = COMMUNITY_TYPES.some(([collection, type]) => savedCommunity.get(guildId + ":" + type) !== JSON.stringify(Array.isArray(guildData[collection]) ? guildData[collection] : []));
+  if (!changed) return;
+  const snapshots = [];
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -129,9 +132,10 @@ async function syncCommunityRecords(pool, guildId, guildData) {
       } else {
         await connection.execute("DELETE FROM community_records WHERE guild_id = ? AND record_type = ?", [guildId, type]);
       }
-      savedCommunity.set(cacheKey, snapshot);
+      snapshots.push([cacheKey, snapshot]);
     }
     await connection.commit();
+    for (const [key, snapshot] of snapshots) savedCommunity.set(key, snapshot);
   } catch (error) {
     await connection.rollback();
     throw error;
