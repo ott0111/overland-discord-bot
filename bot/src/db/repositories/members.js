@@ -132,7 +132,14 @@ export async function recordGuildMemberLeave(guildId, discordId) {
 }
 
 export async function recordGuildMemberMessage(guildId, user) {
-  const connection = await getPool().getConnection();
+  const pool = getPool();
+  const discordId = String(typeof user === "string" ? user : user.id);
+  const [updated] = await pool.execute(
+    "UPDATE discord_members dm INNER JOIN users u ON u.id = dm.user_id SET dm.last_message_at = CURRENT_TIMESTAMP(3), dm.message_count = dm.message_count + 1 WHERE dm.guild_id = ? AND u.discord_id = ?",
+    [guildId, discordId],
+  );
+  if (updated.affectedRows) return "member:" + guildId + ":" + discordId;
+  const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const memberId = await ensureMemberRow(connection, guildId, user, null);
