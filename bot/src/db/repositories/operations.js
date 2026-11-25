@@ -16,7 +16,7 @@ async function ensureGuild(connection, guildId) {
 
 export async function listConfiguration(guildId) {
   const [rows] = await getPool().execute(
-    "SELECT config_key AS key, config_value AS value, updated_by AS updatedBy, updated_at AS updatedAt FROM bot_configuration WHERE guild_id = ? ORDER BY config_key ASC",
+    "SELECT id, config_key AS key, config_value AS value, updated_by AS updatedBy, updated_at AS updatedAt FROM bot_configuration WHERE guild_id = ? ORDER BY config_key ASC",
     [guildId],
   );
   return rows.map((row) => ({ ...row, value: parseJson(row.value) }));
@@ -138,4 +138,11 @@ export async function getNormalizedOverview(guildId) {
     daily,
     db: "ok",
   };
+}
+
+export async function markXPostAnnounced(guildId, id, channelId) {
+  await getPool().execute(
+    "UPDATE x_posts SET announced_at = CURRENT_TIMESTAMP(3), announced_channel_id = ? WHERE guild_id = ? AND id = ?",
+    [channelId, guildId, id],
+  );
 }
