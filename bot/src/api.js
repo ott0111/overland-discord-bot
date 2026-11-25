@@ -551,7 +551,9 @@ export function startCoreApi(client = null) {
             const current = await getXDashboard(guildId);
             const value = { ...current.config, ...(input.value && typeof input.value === "object" ? input.value : {}) };
             if (["bearerToken", "apiKey", "apiSecret", "accessToken", "clientSecret"].some((key) => key in value)) return send(res, 400, { error: "X credentials must be configured as private environment variables, not stored in MySQL." });
-            return send(res, 200, await setConfiguration(guildId, "xIntegration", value, actor.discordId));
+            const saved = await setConfiguration(guildId, "xIntegration", value, actor.discordId);
+            await mirrorConfiguration(guildId, "xIntegration", value);
+            return send(res, 200, saved);
           }
           if (input.action === "announce") {
             const post = await createManualXAnnouncement(guildId, input, actor.discordId);
@@ -576,7 +578,8 @@ export function startCoreApi(client = null) {
     if (auditMatch && req.method === "POST") {
       try {
         const input = await readJsonBody(req);
-        const actor = await requireTeamActor(auditMatch[1], input.actorId, "audit.view");
+        const actor = await staffRecord(auditMatch[1], String(input.actorId || ""));
+        if (!actor.group) return send(res, 403, { error: "Active staff access required" });
         if (process.env.OVERLAND_STORAGE === "mysql") {
           const entry = await appendAuditLog(auditMatch[1], { ...input, actorId: actor.discordId });
           return send(res, 201, { ok: true, id: entry.id });
