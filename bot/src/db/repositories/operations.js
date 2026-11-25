@@ -117,7 +117,7 @@ export async function getNormalizedOverview(guildId) {
   ]);
   const points = new Map(dailyPoints.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
   const checkins = new Map(dailyCheckins.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
-  const joins = new Map(dailyJoins.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
+  const joins = new Map(dailyJoins.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
   const daily = [];
   for (let offset = 13; offset >= 0; offset--) {
     const date = new Date();
