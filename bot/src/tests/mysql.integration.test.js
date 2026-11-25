@@ -5,6 +5,7 @@ import { getPool, closePool } from "../db/mysql.js";
 import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getNormalizedOverview } from "../db/repositories/operations.js";
 import { createRole, listRoles, grantMemberRole, evaluateMemberRoles } from "../db/repositories/roles.js";
 import { createModerationAction, listModerationActions } from "../db/repositories/moderation.js";
+import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "../db/repositories/members.js";
 
 const enabled = process.env.RUN_MYSQL_INTEGRATION_TESTS === "1";
 const databaseName = process.env.DATABASE_NAME || "";
@@ -29,6 +30,10 @@ test("normalized MySQL migrations and repositories work against an isolated test
     const auditRows = await listAuditLogs(guildId, 10);
     assert.ok(auditRows.some((row) => row.id === audit.id && row.details.ok === true));
 
+    await recordGuildMemberJoin(guildId, { id: userId, username: "Integration Tester" }, new Date());
+    await recordGuildMemberMessage(guildId, { id: userId, username: "Integration Tester" });
+    const [activity] = await pool.execute("SELECT message_count FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, "discord:" + userId]);
+    assert.equal(Number(activity[0]?.message_count), 1);
     const role = await createRole(guildId, { name: "Integration Citizen", description: "Temporary test role", discordRoleId: null, config: { requireVerified: false } });
     assert.ok((await listRoles(guildId)).some((row) => row.id === role.id));
     const granted = await grantMemberRole(guildId, { id: userId, username: "Integration Tester" }, role.name, userId);
@@ -44,6 +49,9 @@ test("normalized MySQL migrations and repositories work against an isolated test
     assert.equal(action.caseId, 1);
     assert.ok((await listModerationActions(guildId, 10)).some((row) => row.id === action.id));
 
+    await recordGuildMemberLeave(guildId, userId);
+    const [departed] = await pool.execute("SELECT left_at FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, "discord:" + userId]);
+    assert.ok(departed[0]?.left_at);
     const overview = await getNormalizedOverview(guildId);
     assert.equal(overview.db, "ok");
     assert.equal(typeof overview.members, "number");
