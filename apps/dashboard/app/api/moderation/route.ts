@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
+import { coreApiGet, configuredGuildId } from "../../../lib/core-api";
 import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "moderation.view");
+  const { session, error } = await requireStaff(req, "moderation.view");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const actions = await prisma.moderationAction.findMany({
-      orderBy: { createdAt: "desc" },
-      take: 100,
-      include: { target: { include: { user: true } } },
-    });
-    return NextResponse.json(actions);
-  } catch {
-    return NextResponse.json([]);
+    const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/moderation?actorId=" + encodeURIComponent(session!.discordId) + "&limit=100";
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    const status = typeof err === "object" && err !== null && "status" in err ? Number((err as { status?: number }).status) : 503;
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Moderation service unavailable" }, { status: status >= 400 && status < 600 ? status : 503 });
   }
 }

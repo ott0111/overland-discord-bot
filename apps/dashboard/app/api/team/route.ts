@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiDelete, coreApiGet, coreApiPatch, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
+
 export const dynamic = "force-dynamic";
 
 const GROUP_NAME_MAP: Record<string, string> = {
@@ -9,23 +10,28 @@ const GROUP_NAME_MAP: Record<string, string> = {
   "Rewards Management": "Rewards_Management", Rewards_Management: "Rewards_Management",
 };
 
-async function activeOwnerCount(): Promise<number> {
-  return prisma.internalTeamMember.count({
-    where: { status: "ACTIVE", group: { is: { name: "Owner" } } },
-  });
+function guildPath(): string {
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) throw new Error("Discord guild is not configured");
+  return "/v1/guilds/" + encodeURIComponent(guildId) + "/team";
+}
+
+function apiError(error: unknown, fallback: string) {
+  const status = typeof error === "object" && error !== null && "status" in error
+    ? Number((error as { status?: number }).status) : 503;
+  const safeStatus = status >= 400 && status < 600 ? status : 503;
+  const message = error instanceof Error && safeStatus !== 503 ? error.message : fallback;
+  return NextResponse.json({ error: message }, { status: safeStatus });
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "team.view");
+  const { session, error } = await requireStaff(req, "team.view");
   if (error) return error;
   try {
-    const team = await prisma.internalTeamMember.findMany({
-      orderBy: { addedAt: "asc" },
-      include: { group: { include: { permissions: true } }, member: { include: { user: true } } },
-    });
-    return NextResponse.json(team);
-  } catch {
-    return NextResponse.json({ error: "Unable to load team records" }, { status: 503 });
+    const path = guildPath() + "?actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    return apiError(err, "Unable to load team records");
   }
 }
 
@@ -47,30 +53,10 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Only an existing Owner can appoint another Owner" }, { status: 403 });
   }
   try {
-    const group = await prisma.permissionGroup.findUnique({ where: { name: groupName as never } });
-    if (!group) return NextResponse.json({ error: "Permission group has not been seeded" }, { status: 400 });
-    const user = await prisma.user.upsert({
-      where: { discordId: body.discordId },
-      update: { username: body.username.trim() },
-      create: { discordId: body.discordId, username: body.username.trim() },
-    });
-    const member = await prisma.discordMember.upsert({
-      where: { userId: user.id },
-      update: {},
-      create: { userId: user.id, guildId: process.env.DISCORD_GUILD_ID ?? process.env.GUILD_ID ?? "unconfigured" },
-    });
-    const record = await prisma.internalTeamMember.create({
-      data: {
-        memberId: member.id, discordId: body.discordId, username: body.username.trim(),
-        publicRole: body.publicRole?.trim() || body.jobTitle.trim(),
-        jobTitle: body.jobTitle.trim(), department: body.department.trim(),
-        responsibilities: body.responsibilities?.trim() || null, groupId: group.id,
-      },
-    });
-    await writeAudit(session?.discordId ?? null, "team.add", "InternalTeamMember", record.id, { username: record.username, groupName });
+    const record = await coreApiPost(guildPath(), { ...body, groupName, actorId: session!.discordId });
     return NextResponse.json(record, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Team member already exists or the database is unavailable" }, { status: 409 });
+  } catch (err) {
+    return apiError(err, "Unable to add team member");
   }
 }
 
@@ -87,39 +73,9 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "Invalid team status" }, { status: 400 });
   }
   try {
-    const existing = await prisma.internalTeamMember.findUnique({ where: { id: body.id }, include: { group: true } });
-    if (!existing) return NextResponse.json({ error: "Team member not found" }, { status: 404 });
-    const actorIsOwner = session?.group === "Owner";
-    if (existing.group.name === "Owner" && !actorIsOwner) {
-      return NextResponse.json({ error: "Only an Owner can modify another Owner" }, { status: 403 });
-    }
-    if (body.groupId) {
-      const targetGroup = await prisma.permissionGroup.findUnique({ where: { id: body.groupId } });
-      if (!targetGroup) return NextResponse.json({ error: "Permission group not found" }, { status: 400 });
-      if (targetGroup.name === "Owner" && !actorIsOwner) {
-        return NextResponse.json({ error: "Only an existing Owner can appoint another Owner" }, { status: 403 });
-      }
-    }
-    const leavingOwner = existing.group.name === "Owner" &&
-      ((body.groupId !== undefined && body.groupId !== existing.groupId) || (body.status !== undefined && body.status !== "ACTIVE"));
-    if (leavingOwner && await activeOwnerCount() <= 1) {
-      return NextResponse.json({ error: "The last active Owner cannot be demoted or removed" }, { status: 409 });
-    }
-    const record = await prisma.internalTeamMember.update({
-      where: { id: body.id },
-      data: {
-        ...(body.jobTitle !== undefined ? { jobTitle: body.jobTitle.trim() } : {}),
-        ...(body.department !== undefined ? { department: body.department.trim() } : {}),
-        ...(body.responsibilities !== undefined ? { responsibilities: body.responsibilities } : {}),
-        ...(body.publicRole !== undefined ? { publicRole: body.publicRole.trim() } : {}),
-        ...(body.status !== undefined ? { status: body.status as never } : {}),
-        ...(body.groupId !== undefined ? { groupId: body.groupId } : {}),
-      },
-    });
-    await writeAudit(session?.discordId ?? null, "team.update", "InternalTeamMember", record.id, { username: record.username });
-    return NextResponse.json(record);
-  } catch {
-    return NextResponse.json({ error: "Unable to update team member" }, { status: 503 });
+    return NextResponse.json(await coreApiPatch(guildPath(), { ...body, actorId: session!.discordId }));
+  } catch (err) {
+    return apiError(err, "Unable to update team member");
   }
 }
 
@@ -129,21 +85,9 @@ export async function DELETE(req: Request) {
   const id = new URL(req.url).searchParams.get("id");
   if (!id) return NextResponse.json({ error: "id is required" }, { status: 400 });
   try {
-    const existing = await prisma.internalTeamMember.findUnique({ where: { id }, include: { group: true } });
-    if (!existing) return NextResponse.json({ error: "Team member not found" }, { status: 404 });
-    if (existing.group.name === "Owner" && session?.group !== "Owner") {
-      return NextResponse.json({ error: "Only an Owner can remove another Owner" }, { status: 403 });
-    }
-    if (existing.group.name === "Owner" && existing.status === "ACTIVE" && await activeOwnerCount() <= 1) {
-      return NextResponse.json({ error: "The last active Owner cannot be removed" }, { status: 409 });
-    }
-    await prisma.internalTeamMember.update({
-      where: { id },
-      data: { status: "REMOVED" },
-    });
-    await writeAudit(session?.discordId ?? null, "team.remove", "InternalTeamMember", id, { username: existing.username, status: "REMOVED" });
-    return NextResponse.json({ ok: true });
-  } catch {
-    return NextResponse.json({ error: "Unable to remove team member" }, { status: 503 });
+    const path = guildPath() + "?id=" + encodeURIComponent(id) + "&actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiDelete(path));
+  } catch (err) {
+    return apiError(err, "Unable to remove team member");
   }
 }

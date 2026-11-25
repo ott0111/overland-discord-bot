@@ -1,48 +1,53 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
+function guildOrError() {
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) {
+    return { guildId: "", error: NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 }) };
+  }
+  return { guildId, error: null };
+}
+
+function failure(err: unknown) {
+  const status = typeof err === "object" && err !== null && "status" in err
+    ? Number((err as { status?: number }).status) : 503;
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : "Achievement service unavailable" },
+    { status: status >= 400 && status < 600 ? status : 503 },
+  );
+}
+
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "achievements.manage");
+  const { session, error } = await requireStaff(req, "achievements.manage");
   if (error) return error;
+  const { guildId, error: configError } = guildOrError();
+  if (configError) return configError;
   try {
-    const achievements = await prisma.achievement.findMany({
-      orderBy: { name: "asc" },
-      include: { _count: { select: { members: true } } },
-    });
-    return NextResponse.json(achievements);
-  } catch {
-    return NextResponse.json([]);
+    const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/achievements?actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    return failure(err);
   }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "achievements.manage");
   if (error) return error;
-  const body = (await req.json()) as {
-    key?: string; name?: string; description?: string; kind?: string;
-    threshold?: number; overpointsReward?: number; overcreditsReward?: number;
-  };
-  if (!body.name || !body.description) {
+  const { guildId, error: configError } = guildOrError();
+  if (configError) return configError;
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body.name !== "string" || !body.name.trim() || typeof body.description !== "string" || !body.description.trim()) {
     return NextResponse.json({ error: "name and description are required" }, { status: 400 });
   }
-  const key = (body.key ?? body.name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "achievement-" + Date.now();
   try {
-    const achievement = await prisma.achievement.create({
-      data: {
-        key,
-        name: body.name,
-        description: body.description,
-        kind: (body.kind as never) ?? "CUSTOM",
-        threshold: body.threshold ?? 1,
-        overpointsReward: body.overpointsReward ?? 0,
-        overcreditsReward: body.overcreditsReward ?? 0,
-      },
+    const achievement = await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/achievements", {
+      ...body, actorId: session!.discordId,
     });
-    await writeAudit(session?.discordId ?? null, "achievement.create", "Achievement", achievement.id, { key });
     return NextResponse.json(achievement, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Database unavailable or key already exists" }, { status: 503 });
+  } catch (err) {
+    return failure(err);
   }
 }

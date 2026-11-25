@@ -1,0 +1,107 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { runMigrations } from "../db/migrate.js";
+import { getPool, closePool } from "../db/mysql.js";
+import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getNormalizedOverview, createManualXAnnouncement, getXDashboard, markXPostAnnounced } from "../db/repositories/operations.js";
+import { createRole, listRoles, grantMemberRole, evaluateMemberRoles } from "../db/repositories/roles.js";
+import { createModerationAction, listModerationActions } from "../db/repositories/moderation.js";
+import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "../db/repositories/members.js";
+import { awardNormalized } from "../db/repositories/economy-commands.js";
+import { getGuild, saveStore, loadStore } from "../store.js";
+
+const enabled = process.env.RUN_MYSQL_INTEGRATION_TESTS === "1";
+const databaseName = process.env.DATABASE_NAME || "";
+const guildId = String(BigInt(Date.now()) + 10000000000000000n).slice(0, 20);
+const userId = String(BigInt(Date.now()) + 20000000000000000n).slice(0, 20);
+
+test("normalized MySQL migrations and repositories work against an isolated test database", { skip: !enabled }, async () => {
+  assert.match(databaseName, /(^|_)(test|testing|ci)(_|$)/i, "Refusing integration tests unless DATABASE_NAME clearly identifies a test database");
+  assert.ok(process.env.DATABASE_HOST, "DATABASE_HOST is required");
+  try {
+    await runMigrations();
+    const pool = getPool();
+    const [migrations] = await pool.execute("SELECT name FROM core_migrations ORDER BY name");
+    assert.ok(migrations.length >= 8, "all currently numbered migrations should be applied");
+
+    const saved = await setConfiguration(guildId, "integration-test", { enabled: true, count: 3 }, userId);
+    assert.equal(saved.key, "integration-test");
+    const config = await listConfiguration(guildId);
+    assert.equal(config.find((row) => row.key === "integration-test")?.value?.enabled, true);
+    await setConfiguration(guildId, "dailyLimits", { OVERPOINTS: 100, OVERCREDITS: 100 }, userId);
+    const [guildSettings] = await pool.execute("SELECT settings FROM guilds WHERE guild_id = ? LIMIT 1", [guildId]);
+    const mirroredSettings = typeof guildSettings[0].settings === "string" ? JSON.parse(guildSettings[0].settings) : guildSettings[0].settings;
+    assert.equal(mirroredSettings.dailyLimits.OVERPOINTS, 100);
+
+    await setConfiguration(guildId, "xIntegration", { enabled: true, username: "OverlandFinance", announcementChannelId: "123456789012345678" }, userId);
+    const manualPost = await createManualXAnnouncement(guildId, { text: "Integration test announcement", url: "https://x.com/OverlandFinance/status/123" }, userId);
+    assert.ok(manualPost.postId.length <= 40);
+    assert.equal(manualPost.published, false);
+    assert.ok((await getXDashboard(guildId)).posts.some((post) => post.id === manualPost.id));
+    await markXPostAnnounced(guildId, manualPost.id, "123456789012345678");
+
+    const audit = await appendAuditLog(guildId, { actorId: userId, action: "integration.test", entityType: "Test", entityId: "run", details: { ok: true } });
+    const auditRows = await listAuditLogs(guildId, 10);
+    assert.ok(auditRows.some((row) => row.id === audit.id && row.details.ok === true));
+
+    const legacyUserId = "legacy-user-" + guildId;
+    const legacyMemberId = "legacy-member-" + guildId;
+    await pool.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?)", [legacyUserId, userId, "Integration Tester"]);
+    await pool.execute("INSERT INTO discord_members (id, guild_id, user_id) VALUES (?, ?, ?)", [legacyMemberId, guildId, legacyUserId]);
+    await pool.execute("INSERT INTO point_balances (member_id, guild_id) VALUES (?, ?)", [legacyMemberId, guildId]);
+    await recordGuildMemberJoin(guildId, { id: userId, username: "Integration Tester" }, new Date());
+    await recordGuildMemberMessage(guildId, { id: userId, username: "Integration Tester" });
+    const [activity] = await pool.execute("SELECT id, message_count FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
+    assert.equal(activity[0]?.id, legacyMemberId, "repository must reuse imported non-deterministic member IDs");
+    assert.equal(Number(activity[0]?.message_count), 1);
+    const award = await awardNormalized(guildId, { id: userId, username: "Integration Tester" }, { amount: 10, currency: "OVERPOINTS", category: "community", source: "INTEGRATION_TEST", idempotencyKey: "integration-award:" + guildId });
+    const duplicateAward = await awardNormalized(guildId, { id: userId, username: "Integration Tester" }, { amount: 10, currency: "OVERPOINTS", category: "community", source: "INTEGRATION_TEST", idempotencyKey: "integration-award:" + guildId });
+    assert.equal(award.duplicate, false);
+    assert.equal(duplicateAward.duplicate, true);
+
+    const role = await createRole(guildId, { name: "Integration Citizen", description: "Temporary test role", discordRoleId: null, config: { requireVerified: false } });
+    assert.ok((await listRoles(guildId)).some((row) => row.id === role.id));
+    const granted = await grantMemberRole(guildId, { id: userId, username: "Integration Tester" }, role.name, userId);
+    assert.equal(granted, true);
+    assert.deepEqual(await evaluateMemberRoles(guildId, { id: userId, username: "Integration Tester" }), []);
+
+    const action = await createModerationAction(guildId, {
+      action: "WARN",
+      target: { id: userId, username: "Integration Tester", tag: "Integration Tester" },
+      actorId: userId,
+      reason: "Integration test only",
+    });
+    assert.equal(action.caseId, 1);
+    assert.ok((await listModerationActions(guildId, 10)).some((row) => row.id === action.id));
+
+    await recordGuildMemberLeave(guildId, userId);
+    const [departed] = await pool.execute("SELECT left_at FROM discord_members WHERE guild_id = ? AND user_id = ? LIMIT 1", [guildId, legacyUserId]);
+    assert.ok(departed[0]?.left_at);
+    const previousStorage = process.env.OVERLAND_STORAGE;
+    process.env.OVERLAND_STORAGE = "mysql";
+    const guild = getGuild(guildId);
+    guild.suggestions.push({ id: "S-INTEGRATION", userId, idea: "MySQL persistence", status: "PENDING", createdAt: new Date().toISOString() });
+    guild.reports.push({ id: "R-INTEGRATION", reporterId: userId, targetId: "123456789012345679", details: "Test report", status: "OPEN", createdAt: new Date().toISOString() });
+    guild.appeals.push({ id: "A-INTEGRATION", userId, details: "Test appeal", status: "PENDING", createdAt: new Date().toISOString() });
+    guild.vouches.push({ fromId: userId, toId: "123456789012345679", details: "Test vouch", at: new Date().toISOString() });
+    guild.blacklist.push({ userId: "123456789012345679", reason: "Test only" });
+    guild.tempRoles.push({ userId, roleId: "123456789012345679", expiresAt: Date.now() + 60000, grantedBy: userId });
+    guild.reminders.push({ id: "RM-INTEGRATION", userId, channelId: "123456789012345678", text: "Test reminder", at: new Date(Date.now() + 60000).toISOString() });
+    await saveStore();
+    const [communityCounts] = await pool.execute("SELECT record_type, COUNT(*) AS total FROM community_records WHERE guild_id = ? GROUP BY record_type", [guildId]);
+    assert.equal(communityCounts.length, 7);
+    await loadStore();
+    assert.equal(getGuild(guildId).suggestions[0]?.id, "S-INTEGRATION");
+    getGuild(guildId).suggestions = [];
+    await saveStore();
+    const [suggestionRows] = await pool.execute("SELECT COUNT(*) AS total FROM community_records WHERE guild_id = ? AND record_type = 'SUGGESTION'", [guildId]);
+    assert.equal(Number(suggestionRows[0].total), 0);
+    if (previousStorage === undefined) delete process.env.OVERLAND_STORAGE;
+    else process.env.OVERLAND_STORAGE = previousStorage;
+
+    const overview = await getNormalizedOverview(guildId);
+    assert.equal(overview.db, "ok");
+    assert.equal(typeof overview.members, "number");
+  } finally {
+    await closePool();
+  }
+});

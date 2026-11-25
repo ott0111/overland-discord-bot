@@ -1,67 +1,72 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, coreApiPatch, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
+function guildOrError() {
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) {
+    return { guildId: "", error: NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 }) };
+  }
+  return { guildId, error: null };
+}
+
+function failure(err: unknown) {
+  const status = typeof err === "object" && err !== null && "status" in err
+    ? Number((err as { status?: number }).status) : 503;
+  return NextResponse.json(
+    { error: err instanceof Error ? err.message : "Role service unavailable" },
+    { status: status >= 400 && status < 600 ? status : 503 },
+  );
+}
+
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "roles.manage");
+  const { session, error } = await requireStaff(req, "roles.manage");
   if (error) return error;
+  const { guildId, error: configError } = guildOrError();
+  if (configError) return configError;
   try {
-    const roles = await prisma.role.findMany({
-      orderBy: { sortOrder: "asc" },
-      include: { requiresRole: true, _count: { select: { members: true } } },
-    });
-    return NextResponse.json(roles);
-  } catch {
-    return NextResponse.json([], { status: 200 });
+    const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/roles?actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    return failure(err);
   }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "roles.manage");
   if (error) return error;
-  const body = (await req.json()) as { name?: string; description?: string; isInternal?: boolean; isSelfAssignable?: boolean; discordRoleId?: string };
-  if (!body.name) return NextResponse.json({ error: "name is required" }, { status: 400 });
+  const { guildId, error: configError } = guildOrError();
+  if (configError) return configError;
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body.name !== "string" || !body.name.trim()) {
+    return NextResponse.json({ error: "name is required" }, { status: 400 });
+  }
   try {
-    const role = await prisma.role.create({
-      data: {
-        name: body.name,
-        description: body.description ?? null,
-        isInternal: Boolean(body.isInternal),
-        isSelfAssignable: Boolean(body.isSelfAssignable),
-        discordRoleId: body.discordRoleId ?? null,
-      },
+    const role = await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/roles", {
+      ...body, actorId: session!.discordId,
     });
-    await writeAudit(session?.discordId ?? null, "role.create", "Role", role.id, { name: body.name });
     return NextResponse.json(role, { status: 201 });
-  } catch {
-    return NextResponse.json({ error: "Database unavailable or role already exists" }, { status: 503 });
+  } catch (err) {
+    return failure(err);
   }
 }
 
 export async function PATCH(req: Request) {
   const { session, error } = await requireStaff(req, "roles.manage");
   if (error) return error;
-  const body = (await req.json()) as {
-    id?: string; description?: string; isSelfAssignable?: boolean; requiresRoleId?: string | null;
-    minOverpoints?: number | null; discordRoleId?: string | null; sortOrder?: number;
-  };
-  if (!body.id) return NextResponse.json({ error: "id is required" }, { status: 400 });
+  const { guildId, error: configError } = guildOrError();
+  if (configError) return configError;
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null;
+  if (!body || typeof body.id !== "string" || !body.id) {
+    return NextResponse.json({ error: "id is required" }, { status: 400 });
+  }
   try {
-    const role = await prisma.role.update({
-      where: { id: body.id },
-      data: {
-        ...(body.description !== undefined ? { description: body.description } : {}),
-        ...(body.isSelfAssignable !== undefined ? { isSelfAssignable: body.isSelfAssignable } : {}),
-        ...(body.requiresRoleId !== undefined ? { requiresRoleId: body.requiresRoleId } : {}),
-        ...(body.minOverpoints !== undefined ? { minOverpoints: body.minOverpoints } : {}),
-        ...(body.discordRoleId !== undefined ? { discordRoleId: body.discordRoleId } : {}),
-        ...(body.sortOrder !== undefined ? { sortOrder: body.sortOrder } : {}),
-      },
+    const role = await coreApiPatch("/v1/guilds/" + encodeURIComponent(guildId) + "/roles", {
+      ...body, actorId: session!.discordId,
     });
-    await writeAudit(session?.discordId ?? null, "role.update", "Role", role.id, { name: role.name });
     return NextResponse.json(role);
-  } catch {
-    return NextResponse.json({ error: "Database unavailable or role not found" }, { status: 503 });
+  } catch (err) {
+    return failure(err);
   }
 }

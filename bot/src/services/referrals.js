@@ -1,20 +1,41 @@
 import { getGuild, getMember, saveStore } from "../store.js";
 import { award } from "./economy.js";
-export function existingInvite(guildId, userId) { return Object.entries(getGuild(guildId).invites).find(([, invite]) => invite.memberId === userId && !invite.revokedAt)?.[0] || null; }
-export async function createInvite(guildId, user, invite) { const g = getGuild(guildId), m = getMember(guildId, user); g.invites[invite.code] = { memberId: m.id, createdAt: new Date().toISOString(), uses: invite.uses || 0, revokedAt: null }; await saveStore(); return invite; }
+import { recordInviteCreated, recordReferralJoin, verifyReferralRecord, processReferralMilestonesNormalized, referralStatsNormalized } from "../db/repositories/referrals.js";
+
+export function existingInvite(guildId, userId) {
+  return Object.entries(getGuild(guildId).invites).find(([, invite]) => invite.memberId === userId && !invite.revokedAt)?.[0] || null;
+}
+export async function createInvite(guildId, user, invite) {
+  if (process.env.OVERLAND_STORAGE === "mysql") { await recordInviteCreated(guildId, { code: invite.code, uses: invite.uses || 0, inviter: user }); return invite; }
+  const g = getGuild(guildId), m = getMember(guildId, user);
+  g.invites[invite.code] = { memberId: m.id, createdAt: new Date().toISOString(), uses: invite.uses || 0, revokedAt: null };
+  await saveStore(); return invite;
+}
 export async function recordJoin(guildId, member, code) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return recordReferralJoin(guildId, member.user, code);
   const g = getGuild(guildId), referred = getMember(guildId, member.user), invite = g.invites[code];
   if (!invite || invite.memberId === referred.id || g.referrals.some(r => r.referredId === referred.id)) return null;
   const referral = { id: crypto.randomUUID(), referrerId: invite.memberId, referredId: referred.id, username: referred.username, inviteCode: code, verified: false, retained7d: false, becameComrade: false, createdAt: new Date().toISOString() };
   g.referrals.unshift(referral); await saveStore(); return referral;
 }
 export async function verifyReferral(guildId, userId) {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    const amount = Number(getGuild(guildId).settings.pointValues.verifiedReferral ?? 10);
+    return verifyReferralRecord(guildId, userId, amount);
+  }
   const g = getGuild(guildId), referral = g.referrals.find(r => r.referredId === userId && !r.verified);
   if (!referral || referral.suspicious) return false;
   await award(guildId, referral.referrerId, { amount: g.settings.pointValues.verifiedReferral ?? 10, currency: "OVERPOINTS", category: "referral", source: "REFERRAL", reason: "Verified referral", idempotencyKey: "referral:" + referral.id });
   referral.verified = true; referral.verifiedAt = new Date().toISOString(); await saveStore(); return true;
 }
 export async function processReferralMilestones(guildId, clientGuild) {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    const g = getGuild(guildId);
+    const present = new Set();
+    const members = await clientGuild.members.fetch().catch(() => null);
+    if (members) for (const member of members.values()) present.add(member.id);
+    return processReferralMilestonesNormalized(guildId, present, Number(g.settings.pointValues.sevenDayActive ?? 10), Number(g.settings.pointValues.comradeBonus ?? 5));
+  }
   const g = getGuild(guildId), now = Date.now();
   for (const referral of g.referrals) {
     if (!referral.verified) continue;
@@ -27,4 +48,8 @@ export async function processReferralMilestones(guildId, clientGuild) {
   }
   await saveStore();
 }
-export function referralStats(guildId, userId) { const rows = getGuild(guildId).referrals.filter(r => r.referrerId === userId); return { total: rows.length, verified: rows.filter(r => r.verified).length, retained: rows.filter(r => r.retained7d).length, rows }; }
+export async function referralStats(guildId, userId) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return referralStatsNormalized(guildId, userId);
+  const rows = getGuild(guildId).referrals.filter(r => r.referrerId === userId);
+  return { total: rows.length, verified: rows.filter(r => r.verified).length, retained: rows.filter(r => r.retained7d).length, rows };
+}

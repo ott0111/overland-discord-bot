@@ -1,32 +1,31 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
+function failure(error: unknown) {
+  const status = typeof error === "object" && error !== null && "status" in error ? Number((error as { status?: number }).status) : 503;
+  return NextResponse.json({ error: error instanceof Error ? error.message : "Configuration service unavailable" }, { status: status >= 400 && status < 600 ? status : 503 });
+}
+
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "config.manage");
+  const { session, error } = await requireStaff(req, "config.manage");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    return NextResponse.json(await prisma.botConfiguration.findMany({ orderBy: { key: "asc" } }));
-  } catch {
-    return NextResponse.json([]);
-  }
+    return NextResponse.json(await coreApiGet("/v1/guilds/" + encodeURIComponent(guildId) + "/config?actorId=" + encodeURIComponent(session!.discordId)));
+  } catch (err) { return failure(err); }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "config.manage");
   if (error) return error;
-  const body = (await req.json()) as { key: string; value: unknown };
-  if (!body.key) return NextResponse.json({ error: "key is required" }, { status: 400 });
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  const body = await req.json().catch(() => null) as { key?: string; value?: unknown } | null;
+  if (!body || typeof body.key !== "string" || !body.key.trim()) return NextResponse.json({ error: "key is required" }, { status: 400 });
   try {
-    const row = await prisma.botConfiguration.upsert({
-      where: { key: body.key },
-      update: { value: body.value as never, updatedBy: session?.discordId ?? null },
-      create: { key: body.key, value: body.value as never, updatedBy: session?.discordId ?? null },
-    });
-    await writeAudit(session?.discordId ?? null, "config.update", "BotConfiguration", row.id, { key: body.key });
-    return NextResponse.json(row);
-  } catch {
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
-  }
+    return NextResponse.json(await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/config", { ...body, actorId: session!.discordId }));
+  } catch (err) { return failure(err); }
 }

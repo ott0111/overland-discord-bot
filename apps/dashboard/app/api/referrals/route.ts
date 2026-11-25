@@ -1,26 +1,18 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
+import { coreApiGet, configuredGuildId } from "../../../lib/core-api";
 import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "referrals.view");
+  const { session, error } = await requireStaff(req, "referrals.view");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const [referrals, total, verified, retained, comrade, suspicious] = await Promise.all([
-      prisma.referral.findMany({
-        orderBy: { createdAt: "desc" },
-        take: 100,
-        include: { referrer: { include: { user: true } }, referred: { include: { user: true } } },
-      }),
-      prisma.referral.count(),
-      prisma.referral.count({ where: { verified: true } }),
-      prisma.referral.count({ where: { retained7d: true } }),
-      prisma.referral.count({ where: { becameComrade: true } }),
-      prisma.referral.count({ where: { suspicious: true } }),
-    ]);
-    return NextResponse.json({ referrals, stats: { total, verified, retained, comrade, suspicious } });
-  } catch {
-    return NextResponse.json({ referrals: [], stats: { total: 0, verified: 0, retained: 0, comrade: 0, suspicious: 0 } });
+    const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/referrals?actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    const status = typeof err === "object" && err !== null && "status" in err ? Number((err as { status?: number }).status) : 503;
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Referral service unavailable" }, { status: status >= 400 && status < 600 ? status : 503 });
   }
 }

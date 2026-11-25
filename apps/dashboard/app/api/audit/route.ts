@@ -12,7 +12,7 @@ interface AuditRow {
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "audit.view");
+  const { session, error } = await requireStaff(req, "audit.view");
   if (error) return error;
   const guildId = configuredGuildId();
   if (!guildId) return NextResponse.json({ error: "DISCORD_GUILD_ID is not configured" }, { status: 503 });
@@ -20,7 +20,7 @@ export async function GET(req: Request) {
   const take = Math.min(200, Math.max(1, Number(params.get("take") ?? "100") || 100));
   try {
     const rows = await coreApiGet<AuditRow[]>(
-      "/v1/guilds/" + encodeURIComponent(guildId) + "/audit?take=" + take,
+      "/v1/guilds/" + encodeURIComponent(guildId) + "/audit?take=" + take + "&actorId=" + encodeURIComponent(session!.discordId),
     );
     return NextResponse.json(rows, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

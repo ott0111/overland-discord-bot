@@ -1,43 +1,34 @@
-import type { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
 import { PERMISSIONS } from "@overland/shared";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
+function failure(error: unknown) {
+  const status = typeof error === "object" && error !== null && "status" in error ? Number((error as { status?: number }).status) : 503;
+  return NextResponse.json({ error: error instanceof Error ? error.message : "Permission service unavailable" }, { status: status >= 400 && status < 600 ? status : 503 });
+}
+
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "team.view");
+  const { session, error } = await requireStaff(req, "team.view");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const groups = await prisma.permissionGroup.findMany({
-      orderBy: { name: "asc" },
-      include: { permissions: true, _count: { select: { members: true } } },
-    });
-    return NextResponse.json({ groups, allKeys: [...PERMISSIONS] });
-  } catch {
-    return NextResponse.json({ groups: [], allKeys: [...PERMISSIONS], db: "unavailable" });
-  }
+    const data = await coreApiGet<{ groups: unknown[] }>("/v1/guilds/" + encodeURIComponent(guildId) + "/permissions?actorId=" + encodeURIComponent(session!.discordId));
+    return NextResponse.json({ ...data, allKeys: [...PERMISSIONS] });
+  } catch (err) { return failure(err); }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "team.view");
   if (error) return error;
   if (session?.group !== "Owner") return NextResponse.json({ error: "Only an Owner can change permission group definitions" }, { status: 403 });
-  const body = (await req.json()) as { groupId?: string; keys?: string[] };
-  if (!body.groupId || !Array.isArray(body.keys)) {
-    return NextResponse.json({ error: "groupId and keys[] are required" }, { status: 400 });
-  }
-  const valid = body.keys.filter((k) => (PERMISSIONS as readonly string[]).includes(k));
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  const body = await req.json().catch(() => null) as { groupId?: string; keys?: string[] } | null;
+  if (!body?.groupId || !Array.isArray(body.keys)) return NextResponse.json({ error: "groupId and keys[] are required" }, { status: 400 });
   try {
-    await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await tx.permission.deleteMany({ where: { groupId: body.groupId } });
-      if (valid.length > 0) {
-        await tx.permission.createMany({ data: valid.map((key) => ({ key, groupId: body.groupId as string })) });
-      }
-    });
-    await writeAudit(session?.discordId ?? null, "permissions.update", "PermissionGroup", body.groupId, { keys: valid });
-    return NextResponse.json({ ok: true, keys: valid });
-  } catch {
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
-  }
+    return NextResponse.json(await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/permissions", { ...body, actorId: session!.discordId }));
+  } catch (err) { return failure(err); }
 }

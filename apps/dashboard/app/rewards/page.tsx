@@ -98,7 +98,6 @@ export default function RewardsPage() {
                   <td>
                     <div style={{ display: "flex", gap: 6 }}>
                       <Btn kind="primary" onClick={() => decideClaim(c.id, "APPROVED")}>Approve</Btn>
-                      <Btn onClick={() => decideClaim(c.id, "FULFILLED")}>Fulfill</Btn>
                       <Btn kind="danger" onClick={() => decideClaim(c.id, "REJECTED")}>Reject</Btn>
                     </div>
                   </td>
@@ -111,10 +110,10 @@ export default function RewardsPage() {
           <div style={{ marginTop: 16 }}>
             <h3>Claim history</h3>
             <table className="table">
-              <thead><tr><th>Member</th><th>Reward</th><th>Status</th><th>When</th></tr></thead>
+              <thead><tr><th>Member</th><th>Reward</th><th>Status</th><th>When</th><th>Actions</th></tr></thead>
               <tbody>
                 {claims.filter((c) => c.status !== "PENDING").slice(0, 20).map((c) => (
-                  <tr key={c.id}><td>{c.member.user.username}</td><td>{c.reward.name}</td><td><span className="badge">{c.status}</span></td><td className="muted">{fmtDate(c.createdAt)}</td></tr>
+                  <tr key={c.id}><td>{c.member.user.username}</td><td>{c.reward.name}</td><td><span className="badge">{c.status}</span></td><td className="muted">{fmtDate(c.createdAt)}</td><td>{c.status === "APPROVED" ? <Btn onClick={() => decideClaim(c.id, "FULFILLED")}>Fulfill</Btn> : null}</td></tr>
                 ))}
               </tbody>
             </table>

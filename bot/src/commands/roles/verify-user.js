@@ -1,1 +1,27 @@
-import {SlashCommandBuilder} from "discord.js";import {command,reply,requirePerm} from "../helpers.js";import {getMember,getGuild,saveStore} from "../../store.js";import {grantRole,syncDiscordRole,checkProgression} from "../../services/roles.js";export default command(new SlashCommandBuilder().setName("verify-user").setDescription("Manually verify a member as Citizen").addUserOption(o=>o.setName("member").setDescription("Member").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("Reason")),async i=>{requirePerm(i,"roles.manage");const u=i.options.getUser("member",true),m=getMember(i.guildId,u);m.verifiedAt=new Date().toISOString();m.suspicious=false;await saveStore();await grantRole(i.guildId,u,"Citizen",i.user.id,i.options.getString("reason")||"Staff verification");const dm=await i.guild.members.fetch(u.id);await syncDiscordRole(getGuild(i.guildId),dm,"Citizen",true).catch(()=>{});const earned=await checkProgression(i.guildId,u);for(const r of earned)await syncDiscordRole(getGuild(i.guildId),dm,r,true).catch(()=>{});await reply(i,"Member verified",u.tag+" is now a Citizen.");});
+import { SlashCommandBuilder } from "discord.js";
+import { command, reply, requirePermAsync, syncMemberProgression } from "../helpers.js";
+import { getMember, getGuild, saveStore } from "../../store.js";
+import { grantRole, syncDiscordRole } from "../../services/roles.js";
+import { completeMemberVerification } from "../../db/repositories/roles.js";
+
+export default command(
+  new SlashCommandBuilder().setName("verify-user").setDescription("Manually verify a member as Citizen")
+    .addUserOption((o) => o.setName("member").setDescription("Member").setRequired(true))
+    .addStringOption((o) => o.setName("reason").setDescription("Reason")),
+  async (i) => {
+    await requirePermAsync(i, "roles.manage");
+    const user = i.options.getUser("member", true);
+    if (process.env.OVERLAND_STORAGE === "mysql") await completeMemberVerification(i.guildId, user);
+    else {
+      const member = getMember(i.guildId, user);
+      member.verifiedAt = new Date().toISOString();
+      member.suspicious = false;
+      await saveStore();
+    }
+    await grantRole(i.guildId, user, "Citizen", i.user.id, i.options.getString("reason") || "Staff verification");
+    const discordMember = await i.guild.members.fetch(user.id);
+    await syncDiscordRole(getGuild(i.guildId), discordMember, "Citizen", true).catch(() => {});
+    await syncMemberProgression(i, user);
+    await reply(i, "Member verified", user.tag + " is now a Citizen.");
+  },
+);

@@ -4,10 +4,17 @@ import {loadCommands} from "./commands/loader.js";
 import {loadStore,getGuild,getMember,saveStore} from "./store.js";
 import {embed} from "./commands/helpers.js";
 import {checkProgression,syncDiscordRole} from "./services/roles.js";
-import {recordJoin,processReferralMilestones} from "./services/referrals.js";
+import {recordJoin,processReferralMilestones,createInvite} from "./services/referrals.js";
 import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
+import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
+import { registerXIntegration } from "./services/x-integration.js";
+import { syncTeamCacheFromMySQL } from "./services/permissions.js";
+import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
+import { getMemberVerification, acceptMemberRules, saveVerificationChallenge } from "./db/repositories/roles.js";
+import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "./db/repositories/members.js";
+import { bootstrapOwner } from "./db/repositories/team.js";
 
 const token=process.env.DISCORD_TOKEN;
 if(!token){console.error("[Overland] DISCORD_TOKEN is missing. Add it to bot/.env or your host's environment variables.");process.exit(1);}
@@ -50,40 +57,23 @@ async function syncCommands(appId){
  }
 }
 async function cacheInvites(guild){
- try{const invites=await guild.invites.fetch();inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])));}catch(e){console.warn("[Invites] Cannot read invite uses in "+guild.name+". Grant Manage Guild to track referrals.",e.message);}
-}
-async function announceXPosts(){
- const token=process.env.X_BEARER_TOKEN;if(!token)return;
- for(const guild of client.guilds.cache.values()){
-  const cfg=getGuild(guild.id).settings.x;if(!cfg.username||!cfg.channelId)continue;
-  try{
-   const userRes=await fetch("https://api.x.com/2/users/by/username/"+encodeURIComponent(cfg.username),{headers:{Authorization:"Bearer "+token}});
-   if(!userRes.ok)throw new Error("X user lookup HTTP "+userRes.status);
-   const user=(await userRes.json()).data;if(!user?.id)continue;
-   const params=new URLSearchParams({"tweet.fields":"referenced_tweets,attachments","max_results":"10"});
-   if(cfg.lastPostId)params.set("since_id",cfg.lastPostId);
-   const res=await fetch("https://api.x.com/2/users/"+user.id+"/tweets?"+params,{headers:{Authorization:"Bearer "+token}});
-   if(!res.ok)throw new Error("X timeline HTTP "+res.status);
-   const data=await res.json(),posts=(data.data||[]).reverse();
-   for(const p of posts){
-    const refs=p.referenced_tweets||[];
-    if(cfg.ignoreReplies&&refs.some(x=>x.type==="replied_to"))continue;
-    if(cfg.ignoreReposts&&refs.some(x=>x.type==="retweeted"))continue;
-    if(getGuild(guild.id).xPosts.some(x=>x.id===p.id))continue;
-    const ch=await guild.channels.fetch(cfg.channelId).catch(()=>null);
-    if(ch?.isTextBased())await ch.send({embeds:[embed("@"+cfg.username+" on X",p.text+"\n\nhttps://x.com/"+cfg.username+"/status/"+p.id)]});
-    getGuild(guild.id).xPosts.unshift({id:p.id,at:new Date().toISOString()});
-    cfg.lastPostId=p.id;
-   }
-   await saveStore();
-  }catch(e){console.error("[X] Poll failed for "+guild.name+":",e.message);}
- }
+ try{
+  const invites=await guild.invites.fetch();
+  inviteCache.set(guild.id,new Map(invites.map(x=>[x.code,x.uses||0])));
+  if(process.env.OVERLAND_STORAGE==="mysql")for(const invite of invites.values())if(invite.inviter)await createInvite(guild.id,invite.inviter,invite);
+ }catch(e){console.warn("[Invites] Cannot read invite uses in "+guild.name+". Grant Manage Guild to track referrals.",e.message);}
 }
 async function handleVerifyButton(i){
  const m=getMember(i.guildId,i.user),g=getGuild(i.guildId),v=g.settings.verification;
- if(!m.rulesAcceptedAt)throw new Error("Please review and accept the server rules with /rules before verifying.");if(g.blacklist.some(x=>x.userId===i.user.id))throw new Error("Your account is on the Overland participation blacklist.");if(!v.enabled)throw new Error("Verification is currently disabled.");if(m.suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(m.verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
+ const mysqlMode=process.env.OVERLAND_STORAGE==="mysql";
+ const state=mysqlMode?await getMemberVerification(i.guildId,i.user):null;
+ const rulesAccepted=state?Boolean(state.profile?.rulesAcceptedAt):Boolean(m.rulesAcceptedAt);
+ const suspicious=state?state.isSuspicious:Boolean(m.suspicious);
+ const verifiedAt=state?.verifiedAt||m.verifiedAt;
+ if(!rulesAccepted)throw new Error("Please review and accept the server rules with /rules before verifying.");if(g.blacklist.some(x=>x.userId===i.user.id))throw new Error("Your account is on the Overland participation blacklist.");if(!v.enabled)throw new Error("Verification is currently disabled.");if(suspicious)throw new Error("Your account was flagged by anti-raid protection. Contact staff for manual verification.");const ageDays=(Date.now()-i.user.createdTimestamp)/86400000;if(ageDays<v.minAccountAgeDays)throw new Error("Your Discord account must be at least "+v.minAccountAgeDays+" days old.");if(v.requireAvatar&&!i.user.avatar)throw new Error("Please set a Discord avatar before verifying.");if(verifiedAt)return i.reply({content:"You are already verified.",flags:MessageFlags.Ephemeral});
  const a=Math.floor(Math.random()*8)+2,b=Math.floor(Math.random()*8)+2;
- m.verification={answer:a+b,expiresAt:Date.now()+600000,attempts:0};await saveStore();
+ const challenge={answer:a+b,expiresAt:Date.now()+600000,attempts:0};
+ if(mysqlMode)await saveVerificationChallenge(i.guildId,i.user,challenge);else{m.verification=challenge;await saveStore();}
  return i.reply({embeds:[embed("Verification challenge","Solve this simple check: **"+a+" + "+b+" = ?**\nSubmit the answer using /verify-answer.\nThis challenge expires in 10 minutes.")],flags:MessageFlags.Ephemeral});
 }
 async function createTicket(i,category="support"){
@@ -100,7 +90,7 @@ async function createTicket(i,category="support"){
  const slug=i.user.username.toLowerCase().replace(/[^a-z0-9-]/g,"-").slice(0,18)||"member";
  const ch=await guild.channels.create({name:"ticket-"+category+"-"+slug,type:ChannelType.GuildText,parent:g.settings.ticketCategoryId||undefined,topic:"overland-ticket:"+i.user.id,permissionOverwrites:overwrites});
  const record={id:"OV-"+Date.now().toString(36).toUpperCase(),channelId:ch.id,ownerId:i.user.id,ownerTag:i.user.tag,category,status:"OPEN",claimedBy:null,createdAt:new Date().toISOString(),closedAt:null,feedback:null};
- g.tickets.unshift(record);await saveStore();
+ if(process.env.OVERLAND_STORAGE==="mysql")await createTicketRecord(i.guildId,{id:record.id,category,channelId:ch.id,ownerId:i.user.id});else{g.tickets.unshift(record);await saveStore();}
  const ticketEmbed=embed("OVERLAND SUPPORT  /  "+category.toUpperCase(),"Your private support room is ready. Please explain what you need help with.\n\n**Reference:** "+record.id+"\n**Opened by:** "+i.user)
   .addFields({name:"Helpful details",value:"Include relevant links, transaction references, screenshots, and the steps you have already taken.",inline:false},{name:"Security reminder",value:"Never share passwords, seed phrases, private keys, or authentication codes.",inline:false});
  await ch.send({content:i.user.toString()+(support?" <@&"+support+">":""),embeds:[ticketEmbed],components:[new ActionRowBuilder().addComponents(new ButtonBuilder().setCustomId("overland:ticket:close").setLabel("Close ticket").setStyle(ButtonStyle.Secondary))],allowedMentions:{users:[i.user.id],roles:support?[support]:[]}});
@@ -108,7 +98,7 @@ async function createTicket(i,category="support"){
 }
 async function handleInteraction(i){
  try{
-  if(i.isButton()&&i.customId==="overland:rules:accept"){const m=getMember(i.guildId,i.user);m.rulesAcceptedAt=new Date().toISOString();await saveStore();return i.reply({content:"Rules accepted. You can now complete /verify.",flags:MessageFlags.Ephemeral});}
+  if(i.isButton()&&i.customId==="overland:rules:accept"){if(process.env.OVERLAND_STORAGE==="mysql")await acceptMemberRules(i.guildId,i.user);else{const m=getMember(i.guildId,i.user);m.rulesAcceptedAt=new Date().toISOString();await saveStore();}return i.reply({content:"Rules accepted. You can now complete /verify.",flags:MessageFlags.Ephemeral});}
   if(i.isButton()&&i.customId==="overland:verify:start")return await handleVerifyButton(i);
   if(i.isButton()&&i.customId==="overland:ticket:create")return await createTicket(i);
   if(i.isStringSelectMenu()&&i.customId==="overland:ticket:category")return await createTicket(i,i.values[0]);
@@ -116,13 +106,13 @@ async function handleInteraction(i){
    const topic=i.channel.topic||"",owner=topic.startsWith("overland-ticket:")?topic.slice(16):null;
    const staff=i.memberPermissions?.has(PermissionFlagsBits.ManageChannels);
    if(!owner||(!topic.startsWith("overland-ticket:"))|| (owner!==i.user.id&&!staff))return i.reply({content:"Only the ticket creator or staff can close this.",flags:MessageFlags.Ephemeral});
-   const g=getGuild(i.guildId),record=g.tickets.find(t=>t.channelId===i.channelId);
-   if(record){record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}
+   const g=getGuild(i.guildId),record=process.env.OVERLAND_STORAGE==="mysql"?await getTicketByChannel(i.guildId,i.channelId):g.tickets.find(t=>t.channelId===i.channelId);
+   if(record){if(process.env.OVERLAND_STORAGE==="mysql")await updateTicket(i.guildId,record.id,"close",{actorId:i.user.id});else{record.status="CLOSED";record.closedAt=new Date().toISOString();record.closedBy=i.user.id;}}
    await i.channel.permissionOverwrites.edit(owner,{ViewChannel:true,SendMessages:false,ReadMessageHistory:true}).catch(()=>{});
    await i.channel.setTopic("overland-ticket-closed:"+owner).catch(()=>{});
    await i.channel.setName(("closed-"+i.channel.name).slice(0,95)).catch(()=>{});
    if(g.settings.ticketArchiveCategoryId)await i.channel.setParent(g.settings.ticketArchiveCategoryId).catch(()=>{});
-   await saveStore();
+   if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();
    await i.reply({embeds:[embed("TICKET ARCHIVED","This ticket has been closed and retained for staff review.")],flags:MessageFlags.Ephemeral});
    const feedbackRow=new ActionRowBuilder().addComponents(...[1,2,3,4,5].map(n=>new ButtonBuilder().setCustomId("overland:ticket:feedback:"+n).setLabel(n+" / 5").setStyle(n>=4?ButtonStyle.Success:ButtonStyle.Secondary))); 
    await i.channel.send({embeds:[embed("HOW DID WE DO?","If you opened this ticket, rate your support experience below.")],components:[feedbackRow]}).catch(()=>{});
@@ -140,9 +130,11 @@ async function handleInteraction(i){
 }
 client.on(Events.InteractionCreate,handleInteraction);
 registerAutomations(client);
+registerXIntegration(client);
+client.on(Events.InviteCreate,async invite=>{try{if(invite.guild&&invite.inviter)await createInvite(invite.guild.id,invite.inviter,invite);}catch(e){console.error("[InviteCreate]",e.message);}});
 client.on(Events.GuildMemberAdd,async member=>{
  try{
-  const g=getGuild(member.guild.id);g.stats.joins++;const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
+  const g=getGuild(member.guild.id);g.stats.joins++;if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberJoin(member.guild.id,member.user,member.joinedAt||new Date());const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
   const current=await member.guild.invites.fetch().catch(()=>null),previous=inviteCache.get(member.guild.id)||new Map();let used=null;
   if(current){for(const inv of current.values()){if((inv.uses||0)>(previous.get(inv.code)||0)){used=inv;break;}}inviteCache.set(member.guild.id,new Map(current.map(x=>[x.code,x.uses||0])));}
   if(used)await recordJoin(member.guild.id,member,used.code);
@@ -153,7 +145,7 @@ client.on(Events.GuildMemberAdd,async member=>{
   await saveStore();
  }catch(e){console.error("[GuildMemberAdd]",e);}
 });
-client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;await saveStore();});
+client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberLeave(m.guild.id,m.id);await saveStore();});
 client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
  try{
   const g=getGuild(newMember.guild.id),member=getMember(newMember.guild.id,newMember.user);
@@ -167,7 +159,7 @@ client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
   await saveStore();
  }catch(e){console.error("[RoleSync]",e);}
 });
-client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(g.stats.messages%25===0)await saveStore();});
+client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberMessage(m.guild.id,m.author).catch(e=>console.error("[MemberActivity]",e.message));if(process.env.OVERLAND_STORAGE==="mysql"&&m.channel?.isTextBased())await appendTicketMessage(m.guild.id,m.channel.id,m.author.id,m.content).catch(e=>console.error("[TicketMessage]",e.message));if(g.stats.messages%25===0)await saveStore();});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
  ready.user.setPresence({
@@ -182,15 +174,26 @@ client.once(Events.ClientReady,async ready=>{
   await syncCommands(appId);
  }catch(e){console.error("[Commands] FATAL: "+e.message);console.error("[Commands] Exiting because slash commands could not be registered. Fix the settings and restart.");process.exit(1);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
- const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}await saveStore();}
+ const owner=process.env.OVERLAND_OWNER_DISCORD_ID;
+ if(owner){
+  for(const g of ready.guilds.cache.values()){
+   if(process.env.OVERLAND_STORAGE==="mysql")await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");
+   else{
+    const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];
+    data.team=data.team.filter(x=>x.discordId!==owner);
+    data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});
+   }
+  }
+  if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();
+ }
+ if(process.env.OVERLAND_STORAGE==="mysql")for(const g of ready.guilds.cache.values())await syncTeamCacheFromMySQL(g.id);
  console.log("[Overland] Loaded "+commands.size+" modular commands.");
 });
-const xTimer=setInterval(()=>announceXPosts().catch(e=>console.error("[X]",e)),5*60*1000);
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
 const referralTimer=setInterval(async()=>{for(const guild of client.guilds.cache.values())await processReferralMilestones(guild.id,guild).catch(e=>console.error("[Referrals]",e));},60*60*1000);
-async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving JSON data.");clearInterval(xTimer);clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();process.exit(0);}
+async function shutdown(signal){console.log("[Overland] "+signal+" received. Saving data.");clearInterval(saveTimer);clearInterval(referralTimer);await saveStore();client.destroy();await closePool();process.exit(0);}
 process.on("SIGINT",()=>shutdown("SIGINT"));process.on("SIGTERM",()=>shutdown("SIGTERM"));
 await loadStore();
 await ownerBootstrap();
-startCoreApi();
+startCoreApi(client);
 await client.login(token);

@@ -1,65 +1,31 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../lib/prisma";
-import { requireStaff, writeAudit } from "../../../lib/auth";
+import { coreApiGet, coreApiPost, configuredGuildId } from "../../../lib/core-api";
+import { requireStaff } from "../../../lib/auth";
 export const dynamic = "force-dynamic";
 
-async function readXConfig(): Promise<Record<string, unknown>> {
-  try {
-    const row = await prisma.botConfiguration.findUnique({ where: { key: "xIntegration" } });
-    return (row?.value as Record<string, unknown>) ?? {};
-  } catch {
-    return {};
-  }
+function failure(error: unknown) {
+  const status = typeof error === "object" && error !== null && "status" in error ? Number((error as { status?: number }).status) : 503;
+  return NextResponse.json({ error: error instanceof Error ? error.message : "X integration service unavailable" }, { status: status >= 400 && status < 600 ? status : 503 });
 }
 
 export async function GET(req: Request) {
-  const { error } = await requireStaff(req, "x.manage");
+  const { session, error } = await requireStaff(req, "x.manage");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const [config, posts] = await Promise.all([
-      readXConfig(),
-      prisma.xPost.findMany({ orderBy: { createdAt: "desc" }, take: 30 }),
-    ]);
-    return NextResponse.json({ config, posts });
-  } catch {
-    return NextResponse.json({ config: {}, posts: [], db: "unavailable" });
-  }
+    return NextResponse.json(await coreApiGet("/v1/guilds/" + encodeURIComponent(guildId) + "/x?actorId=" + encodeURIComponent(session!.discordId)));
+  } catch (err) { return failure(err); }
 }
 
 export async function POST(req: Request) {
   const { session, error } = await requireStaff(req, "x.manage");
   if (error) return error;
-  const body = (await req.json()) as { action?: string; value?: Record<string, unknown>; text?: string; url?: string };
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  const body = await req.json().catch(() => null) as { action?: string; value?: Record<string, unknown>; text?: string; url?: string } | null;
+  if (!body || !body.action) return NextResponse.json({ error: "action is required" }, { status: 400 });
   try {
-    if (body.action === "config") {
-      const merged = { ...(await readXConfig()), ...(body.value ?? {}) };
-      const row = await prisma.botConfiguration.upsert({
-        where: { key: "xIntegration" },
-        update: { value: merged as never, updatedBy: session?.discordId ?? null },
-        create: { key: "xIntegration", value: merged as never, updatedBy: session?.discordId ?? null },
-      });
-      await writeAudit(session?.discordId ?? null, "x.config", "BotConfiguration", row.id);
-      return NextResponse.json(row);
-    }
-    if (body.action === "announce") {
-      if (!body.text || !body.url) return NextResponse.json({ error: "text and url are required" }, { status: 400 });
-      const config = await readXConfig();
-      // Recorded as a manual announcement. The bot posts it to Discord from
-      // this record; this route never claims a live post was published.
-      const post = await prisma.xPost.create({
-        data: {
-          postId: "manual-" + Date.now(),
-          authorUsername: String(config.username ?? "OverlandFinance"),
-          text: body.text,
-          url: body.url,
-          announcedChannelId: (config.announcementChannelId as string | undefined) ?? null,
-        },
-      });
-      await writeAudit(session?.discordId ?? null, "x.manual_announce", "XPost", post.id, { url: body.url });
-      return NextResponse.json(post, { status: 201 });
-    }
-    return NextResponse.json({ error: "Unknown action" }, { status: 400 });
-  } catch {
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
-  }
+    return NextResponse.json(await coreApiPost("/v1/guilds/" + encodeURIComponent(guildId) + "/x", { ...body, actorId: session!.discordId }));
+  } catch (err) { return failure(err); }
 }

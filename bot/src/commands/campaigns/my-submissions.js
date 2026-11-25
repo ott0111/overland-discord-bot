@@ -1,1 +1,14 @@
-import {SlashCommandBuilder} from "discord.js";import {command,reply} from "../helpers.js";import {getGuild} from "../../store.js";export default command(new SlashCommandBuilder().setName("my-submissions").setDescription("View your campaign submissions"),async i=>{const a=getGuild(i.guildId).submissions.filter(x=>x.memberId===i.user.id).slice(0,12);await reply(i,"Your submissions",a.map(x=>x.category+" • "+x.status+" • "+x.id+"\n"+x.content+(x.feedback?"\nFeedback: "+x.feedback:"")).join("\n\n")||"You have not submitted anything yet.");});
+import { SlashCommandBuilder } from "discord.js";
+import { command, reply } from "../helpers.js";
+import { mySubmissions } from "../../services/campaigns.js";
+
+export default command(
+  new SlashCommandBuilder().setName("my-submissions").setDescription("View your campaign submissions"),
+  async (i) => {
+    const rows = await mySubmissions(i.guildId, i.user.id);
+    await reply(i, "Your submissions", rows.map((row) =>
+      row.category + " • " + row.status + " • " + row.id + "\n" + row.content +
+      (row.feedback ? "\nFeedback: " + row.feedback : "")
+    ).join("\n\n") || "You have not submitted anything yet.");
+  },
+);

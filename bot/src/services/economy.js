@@ -1,4 +1,5 @@
 import { getGuild, getMember, saveStore } from "../store.js";
+import { awardNormalized, spendNormalized, dailyCheckinNormalized } from "../db/repositories/economy-commands.js";
 const dayKey = (date = new Date()) => date.toISOString().slice(0, 10);
 const SOCIAL = new Set(["social", "social_post", "infographic", "educational_thread", "article", "campaign_contribution", "video"]);
 const CONTRIBUTION = new Set(["contribution", "graphic_design", "industry_research", "contribution_article", "product_feedback", "community_initiative", "significant_contribution"]);
@@ -9,7 +10,9 @@ function categoryBucket(category) {
   return "community";
 }
 export function balanceOf(member) { return { overpoints: member.overpoints, overcredits: member.overcredits, communityPoints: member.communityPoints, socialPoints: member.socialPoints, referralPoints: member.referralPoints, contributionPoints: member.contributionPoints }; }
-export async function award(guildId, user, { currency = "OVERPOINTS", amount, category = "community", source = "STAFF", reason = "", actorId = "SYSTEM", idempotencyKey }) {
+export async function award(guildId, user, options) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return awardNormalized(guildId,user,options);
+  const { currency = "OVERPOINTS", amount, category = "community", source = "STAFF", reason = "", actorId = "SYSTEM", idempotencyKey } = options;
   if (!["OVERPOINTS", "OVERCREDITS"].includes(currency)) throw new Error("Unknown currency.");
   if (!Number.isInteger(amount) || amount <= 0) throw new Error("Award amount must be a positive whole number.");
   const guild = getGuild(guildId), member = getMember(guildId, user), key = idempotencyKey || [source, member.id, category, dayKey(), amount].join(":");
@@ -29,6 +32,7 @@ export async function award(guildId, user, { currency = "OVERPOINTS", amount, ca
   await saveStore(); return { duplicate: false, member };
 }
 export async function spend(guildId, user, amount, reason, idempotencyKey) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return spendNormalized(guildId,user,amount,reason,idempotencyKey);
   if (!Number.isInteger(amount) || amount <= 0) throw new Error("Invalid amount.");
   const guild = getGuild(guildId), member = getMember(guildId, user);
   if (guild.transactions.some(t => t.idempotencyKey === idempotencyKey)) return { duplicate: true, member };
@@ -38,6 +42,7 @@ export async function spend(guildId, user, amount, reason, idempotencyKey) {
   await saveStore(); return { duplicate: false, member };
 }
 export async function dailyCheckin(guildId, user) {
+  if (process.env.OVERLAND_STORAGE === "mysql") return dailyCheckinNormalized(guildId,user);
   const guild = getGuild(guildId), member = getMember(guildId, user), today = dayKey();
   if (member.lastCheckin === today) throw new Error("You have already checked in today.");
   const yesterday = dayKey(new Date(Date.now() - 86400000)), streak = member.lastCheckin === yesterday ? member.streak + 1 : 1;

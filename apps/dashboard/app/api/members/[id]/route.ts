@@ -1,28 +1,20 @@
 import { NextResponse } from "next/server";
-import { prisma } from "../../../../lib/prisma";
+import { coreApiGet, configuredGuildId } from "../../../../lib/core-api";
 import { requireStaff } from "../../../../lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const { error } = await requireStaff(req, "economy.view");
+  const { session, error } = await requireStaff(req, "economy.view");
   if (error) return error;
+  const guildId = configuredGuildId();
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
-    const member = await prisma.discordMember.findUnique({
-      where: { id: params.id },
-      include: {
-        user: true,
-        balance: true,
-        roles: { include: { role: true } },
-        achievements: { include: { achievement: true }, orderBy: { awardedAt: "desc" } },
-        transactions: { orderBy: { createdAt: "desc" }, take: 20 },
-        checkins: { orderBy: { date: "desc" }, take: 30 },
-        referralsGiven: true,
-        referralsReceived: true,
-      },
-    });
-    if (!member) return NextResponse.json({ error: "Member not found" }, { status: 404 });
-    return NextResponse.json(member);
-  } catch {
-    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
+    const path = "/v1/guilds/" + encodeURIComponent(guildId) + "/members/" + encodeURIComponent(params.id) +
+      "?actorId=" + encodeURIComponent(session!.discordId);
+    return NextResponse.json(await coreApiGet(path));
+  } catch (err) {
+    const status = typeof err === "object" && err !== null && "status" in err ? Number((err as {status?:number}).status) : 503;
+    const safeStatus = status >= 400 && status < 600 ? status : 503;
+    return NextResponse.json({ error: safeStatus === 503 ? "Member service unavailable" : err instanceof Error ? err.message : "Request failed" }, { status: safeStatus });
   }
 }

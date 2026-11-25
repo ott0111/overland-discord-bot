@@ -1,5 +1,7 @@
+import { checkMemberAchievements } from "../db/repositories/achievements.js";
 import { getGuild, getMember, saveStore } from "../store.js";
 export async function checkAchievements(guildId,user) {
+ if (process.env.OVERLAND_STORAGE === "mysql") return checkMemberAchievements(guildId, user);
  const g=getGuild(guildId),m=getMember(guildId,user),earned=[];
  const checks=[
   ["first-checkin","First Steps","Complete your first daily check-in",m.lastCheckin],
