@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   const { session, error } = await requireStaff(req, "team.view");
   if (error) return error;
   const guildId = configuredGuildId();
-  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   try {
     const data = await coreApiGet<{ groups: unknown[] }>("/v1/guilds/" + encodeURIComponent(guildId) + "/permissions?actorId=" + encodeURIComponent(session!.discordId));
     return NextResponse.json({ ...data, allKeys: [...PERMISSIONS] });
@@ -25,7 +25,7 @@ export async function POST(req: Request) {
   if (error) return error;
   if (session?.group !== "Owner") return NextResponse.json({ error: "Only an Owner can change permission group definitions" }, { status: 403 });
   const guildId = configuredGuildId();
-  if (!/^\\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
+  if (!/^\d{17,20}$/.test(guildId)) return NextResponse.json({ error: "Discord guild is not configured" }, { status: 500 });
   const body = await req.json().catch(() => null) as { groupId?: string; keys?: string[] } | null;
   if (!body?.groupId || !Array.isArray(body.keys)) return NextResponse.json({ error: "groupId and keys[] are required" }, { status: 400 });
   try {
