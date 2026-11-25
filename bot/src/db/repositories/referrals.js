@@ -41,7 +41,8 @@ export async function recordReferralJoin(guildId, user, inviteCode) {
     if (!inviterId || inviterId === referred.discordId) { await connection.commit(); return null; }
     const referrer = await resolveMember(connection, guildId, inviterId);
     const id = crypto.randomUUID();
-    await connection.execute("INSERT IGNORE INTO referrals (id, guild_id, referrer_member_id, referred_member_id, invite_code) VALUES (?, ?, ?, ?, ?)", [id, guildId, referrer.id, referred.id, String(inviteCode)]);
+    const [inserted] = await connection.execute("INSERT IGNORE INTO referrals (id, guild_id, referrer_member_id, referred_member_id, invite_code) VALUES (?, ?, ?, ?, ?)", [id, guildId, referrer.id, referred.id, String(inviteCode)]);
+    if (!inserted.affectedRows) { await connection.commit(); return null; }
     const [rows] = await connection.execute("SELECT r.id, r.referrer_member_id AS referrerId, r.referred_member_id AS referredId, r.invite_code AS inviteCode, r.verified, r.retained_7d AS retained7d, r.became_comrade AS becameComrade, r.suspicious, r.created_at AS createdAt FROM referrals r WHERE r.guild_id = ? AND r.referrer_member_id = ? AND r.referred_member_id = ? LIMIT 1", [guildId, referrer.id, referred.id]);
     await connection.execute("UPDATE invite_tracking SET uses = ? WHERE guild_id = ? AND invite_code = ?", [Number(invites[0].uses || 0) + 1, guildId, String(inviteCode)]);
     await connection.commit();
