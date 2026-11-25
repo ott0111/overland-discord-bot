@@ -34,7 +34,7 @@ async function importGuild(pool, guildId, guildData) {
     ["security", settings.security],
     ["infoContent", settings.info],
     ["xIntegration", settings.x ? {
-      enabled: Boolean(settings.x.enabled),
+      enabled: settings.x.enabled !== false && Boolean(settings.x.username && settings.x.channelId),
       username: settings.x.username || null,
       announcementChannelId: settings.x.channelId || null,
       ignoreReplies: settings.x.ignoreReplies !== false,
