@@ -134,7 +134,7 @@ async function requireTeamActor(guildId, actorId, permission) {
 }
 
 async function requireTeamActorAny(guildId, actorId, permissions) {
-  if (!/^\\d{17,20}$/.test(String(actorId || ""))) throw Object.assign(new Error("A valid staff actor ID is required"), { status: 401 });
+  if (!/^\d{17,20}$/.test(String(actorId || ""))) throw Object.assign(new Error("A valid staff actor ID is required"), { status: 401 });
   const staff = await staffRecord(guildId, actorId);
   if (!staff.group) throw Object.assign(new Error("Active staff access required"), { status: 403 });
   if (staff.group !== "Owner" && !permissions.some((permission) => staff.permissions.includes(permission))) {
