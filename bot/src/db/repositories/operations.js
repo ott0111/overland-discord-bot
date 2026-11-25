@@ -116,7 +116,7 @@ export async function getNormalizedOverview(guildId) {
     pool.execute("SELECT DATE_FORMAT(joined_at, '%Y-%m-%d') AS day, COUNT(*) AS total FROM discord_members WHERE guild_id = ? AND left_at IS NULL AND joined_at >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE_FORMAT(joined_at, '%Y-%m-%d')", [guildId]),
   ]);
   const points = new Map(dailyPoints.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
-  const checkins = new Map(dailyCheckins.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
+  const checkins = new Map(dailyCheckins.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
   const joins = new Map(dailyJoins.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
   const daily = [];
   for (let offset = 13; offset >= 0; offset--) {
