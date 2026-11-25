@@ -102,3 +102,43 @@ export async function getMemberDetails(guildId, memberId) {
     transactions, checkins, referralsGiven, referralsReceived,
   };
 }
+
+
+async function ensureMemberRow(connection, guildId, user, joinedAt = null) {
+  const discordId = String(typeof user === "string" ? user : user.id);
+  const username = String(typeof user === "string" ? discordId : user.username || user.globalName || discordId).slice(0, 100);
+  await connection.execute("INSERT IGNORE INTO guilds (guild_id, settings, stats) VALUES (?, JSON_OBJECT(), JSON_OBJECT())", [guildId]);
+  const userId = "discord:" + discordId;
+  await connection.execute("INSERT INTO users (id, discord_id, username) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE username = VALUES(username)", [userId, discordId, username]);
+  const memberId = "member:" + guildId + ":" + discordId;
+  await connection.execute("INSERT INTO discord_members (id, guild_id, user_id, joined_at, left_at) VALUES (?, ?, ?, ?, NULL) ON DUPLICATE KEY UPDATE joined_at = COALESCE(joined_at, VALUES(joined_at)), left_at = NULL", [memberId, guildId, userId, joinedAt ? new Date(joinedAt) : null]);
+  await connection.execute("INSERT IGNORE INTO point_balances (member_id, guild_id) VALUES (?, ?)", [memberId, guildId]);
+  return memberId;
+}
+
+export async function recordGuildMemberJoin(guildId, user, joinedAt = new Date()) {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const memberId = await ensureMemberRow(connection, guildId, user, joinedAt);
+    await connection.commit();
+    return memberId;
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
+}
+
+export async function recordGuildMemberLeave(guildId, discordId) {
+  await getPool().execute("UPDATE discord_members dm INNER JOIN users u ON u.id = dm.user_id SET dm.left_at = CURRENT_TIMESTAMP(3) WHERE dm.guild_id = ? AND u.discord_id = ?", [guildId, String(discordId)]);
+}
+
+export async function recordGuildMemberMessage(guildId, user) {
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const memberId = await ensureMemberRow(connection, guildId, user, null);
+    await connection.execute("UPDATE discord_members SET last_message_at = CURRENT_TIMESTAMP(3), message_count = message_count + 1 WHERE id = ?", [memberId]);
+    await connection.commit();
+    return memberId;
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
+}
