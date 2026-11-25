@@ -12,6 +12,7 @@ import { registerAutomations } from "./services/automations.js";
 import { registerXIntegration } from "./services/x-integration.js";
 import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
 import { getMemberVerification, acceptMemberRules, saveVerificationChallenge } from "./db/repositories/roles.js";
+import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "./db/repositories/members.js";
 import { bootstrapOwner } from "./db/repositories/team.js";
 
 const token=process.env.DISCORD_TOKEN;
@@ -159,7 +160,7 @@ registerXIntegration(client);
 client.on(Events.InviteCreate,async invite=>{try{if(invite.guild&&invite.inviter)await createInvite(invite.guild.id,invite.inviter,invite);}catch(e){console.error("[InviteCreate]",e.message);}});
 client.on(Events.GuildMemberAdd,async member=>{
  try{
-  const g=getGuild(member.guild.id);g.stats.joins++;const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
+  const g=getGuild(member.guild.id);g.stats.joins++;if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberJoin(member.guild.id,member.user,member.joinedAt||new Date());const v=g.settings.verification,now=Date.now();g.recentJoins=g.recentJoins.filter(t=>now-t<v.antiRaidWindowMinutes*60000);g.recentJoins.push(now);const tracked=getMember(member.guild.id,member.user);if(g.recentJoins.length>=v.antiRaidThreshold)tracked.suspicious=true;
   const current=await member.guild.invites.fetch().catch(()=>null),previous=inviteCache.get(member.guild.id)||new Map();let used=null;
   if(current){for(const inv of current.values()){if((inv.uses||0)>(previous.get(inv.code)||0)){used=inv;break;}}inviteCache.set(member.guild.id,new Map(current.map(x=>[x.code,x.uses||0])));}
   if(used)await recordJoin(member.guild.id,member,used.code);
@@ -170,7 +171,7 @@ client.on(Events.GuildMemberAdd,async member=>{
   await saveStore();
  }catch(e){console.error("[GuildMemberAdd]",e);}
 });
-client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;await saveStore();});
+client.on(Events.GuildMemberRemove,async m=>{getGuild(m.guild.id).stats.leaves++;if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberLeave(m.guild.id,m.id);await saveStore();});
 client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
  try{
   const g=getGuild(newMember.guild.id),member=getMember(newMember.guild.id,newMember.user);
@@ -184,7 +185,7 @@ client.on(Events.GuildMemberUpdate,async(_oldMember,newMember)=>{
   await saveStore();
  }catch(e){console.error("[RoleSync]",e);}
 });
-client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(process.env.OVERLAND_STORAGE==="mysql"&&m.channel?.isTextBased())await appendTicketMessage(m.guild.id,m.channel.id,m.author.id,m.content).catch(e=>console.error("[TicketMessage]",e.message));if(g.stats.messages%25===0)await saveStore();});
+client.on(Events.MessageCreate,async m=>{if(!m.guild||m.author.bot)return;const g=getGuild(m.guild.id);g.stats.messages++;getMember(m.guild.id,m.author);if(process.env.OVERLAND_STORAGE==="mysql")await recordGuildMemberMessage(m.guild.id,m.author).catch(e=>console.error("[MemberActivity]",e.message));if(process.env.OVERLAND_STORAGE==="mysql"&&m.channel?.isTextBased())await appendTicketMessage(m.guild.id,m.channel.id,m.author.id,m.content).catch(e=>console.error("[TicketMessage]",e.message));if(g.stats.messages%25===0)await saveStore();});
 client.once(Events.ClientReady,async ready=>{
  console.log("[Overland] Connected as "+ready.user.tag+" ("+ready.user.id+")");
  ready.user.setPresence({
