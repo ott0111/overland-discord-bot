@@ -79,7 +79,7 @@ async function deliverPending(client, guildId, channelId) {
   for (const post of pending) {
     try {
       await channel.send({
-        embeds: [embed("OVERLAND ON X", String(post.text).slice(0, 3500) + "\\n\\n" + post.url)],
+        embeds: [embed("OVERLAND ON X", String(post.text).slice(0, 3500) + "\n\n" + post.url)],
         allowedMentions: { parse: [] },
       });
       await markXPostAnnounced(guildId, post.id, channelId);
@@ -132,7 +132,7 @@ async function pollGuild(client, guildId) {
       const channel = await client.channels.fetch(config.channelId).catch(() => null);
       if (channel?.isTextBased()) {
         for (const post of guild.xPosts.filter((item) => !item.announcedAt).slice(0, 10)) {
-          await channel.send({ embeds: [embed("OVERLAND ON X", post.text.slice(0, 3500) + "\\n\\n" + post.url)], allowedMentions: { parse: [] } });
+          await channel.send({ embeds: [embed("OVERLAND ON X", post.text.slice(0, 3500) + "\n\n" + post.url)], allowedMentions: { parse: [] } });
           post.announcedAt = new Date().toISOString();
         }
       }
