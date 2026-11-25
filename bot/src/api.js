@@ -16,6 +16,7 @@ import { listModerationActions } from "./db/repositories/moderation.js";
 import { checkMemberAchievements } from "./db/repositories/achievements.js";
 import { evaluateMemberRoles } from "./db/repositories/roles.js";
 import { syncDiscordRole } from "./services/roles.js";
+import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getXDashboard, createManualXAnnouncement, getNormalizedOverview } from "./db/repositories/operations.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -98,7 +99,7 @@ function overview(g) {
 async function staffRecord(guildId, discordId) {
   if (process.env.OVERLAND_STORAGE === "mysql") {
     const normalized = await findStaffMember(guildId, discordId);
-    if (normalized) return normalized;
+    return normalized || { discordId, username: "", group: null, permissions: [] };
   }
   const g = getGuild(guildId);
   const member = g.team.find((x) => x.discordId === discordId && !["REMOVED", "INACTIVE", "SUSPENDED"].includes(x.status));
@@ -143,6 +144,10 @@ async function requireTeamActorAny(guildId, actorId, permissions) {
 }
 
 async function appendAudit(guildId, actorId, action, entityId, details = {}, entityType = "InternalTeamMember") {
+  if (process.env.OVERLAND_STORAGE === "mysql") {
+    await appendAuditLog(guildId, { actorId, action, entityId, details, entityType });
+    return;
+  }
   const guild = getGuild(guildId);
   guild.audit.unshift({ id: crypto.randomUUID(), actorId, action, entityType, entityId, details, createdAt: new Date().toISOString() });
   if (guild.audit.length > 5000) guild.audit.length = 5000;
@@ -167,7 +172,13 @@ export function startCoreApi(client = null) {
     const staffMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/staff\/(\d{17,20})$/);
     if (staffMatch) return send(res, 200, await staffRecord(staffMatch[1], staffMatch[2]));
     const overviewMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/overview$/);
-    if (overviewMatch) return send(res, 200, overview(getGuild(overviewMatch[1])));
+    if (overviewMatch) {
+      try {
+        await requireTeamActor(overviewMatch[1], url.searchParams.get("actorId"), "analytics.view");
+        if (process.env.OVERLAND_STORAGE === "mysql") return send(res, 200, await getNormalizedOverview(overviewMatch[1]));
+        return send(res, 200, overview(getGuild(overviewMatch[1])));
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Overview service unavailable" }); }
+    }
 
 
 
@@ -456,50 +467,77 @@ export function startCoreApi(client = null) {
       } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Reward service unavailable" }); }
     }
 
+    const configMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/config$/);
+    if (configMatch) {
+      const guildId = configMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "Configuration management requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "config.manage");
+          return send(res, 200, await listConfiguration(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "config.manage");
+          if (typeof input.key !== "string" || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(input.key)) return send(res, 400, { error: "A valid configuration key is required" });
+          if (/token|secret|password|credential|private.?key/i.test(input.key)) return send(res, 400, { error: "Secrets must be stored in private environment variables, not dashboard configuration." });
+          return send(res, 200, await setConfiguration(guildId, input.key, input.value, actor.discordId));
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Configuration service unavailable" }); }
+    }
+
+    const xMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/x$/);
+    if (xMatch) {
+      const guildId = xMatch[1];
+      if (process.env.OVERLAND_STORAGE !== "mysql") return send(res, 503, { error: "X integration requires MySQL storage to be enabled." });
+      try {
+        if (req.method === "GET") {
+          await requireTeamActor(guildId, url.searchParams.get("actorId"), "x.manage");
+          return send(res, 200, await getXDashboard(guildId));
+        }
+        if (req.method === "POST") {
+          const input = await readJsonBody(req);
+          const actor = await requireTeamActor(guildId, input.actorId, "x.manage");
+          if (input.action === "config") {
+            const current = await getXDashboard(guildId);
+            const value = { ...current.config, ...(input.value && typeof input.value === "object" ? input.value : {}) };
+            if (["bearerToken", "apiKey", "apiSecret", "accessToken", "clientSecret"].some((key) => key in value)) return send(res, 400, { error: "X credentials must be configured as private environment variables, not stored in MySQL." });
+            return send(res, 200, await setConfiguration(guildId, "xIntegration", value, actor.discordId));
+          }
+          if (input.action === "announce") return send(res, 201, await createManualXAnnouncement(guildId, input, actor.discordId));
+          return send(res, 400, { error: "Unknown X integration action" });
+        }
+        return send(res, 405, { error: "Method not allowed" });
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "X integration service unavailable" }); }
+    }
+
     const auditMatch = url.pathname.match(/^\/v1\/guilds\/(\d{17,20})\/audit$/);
     if (auditMatch && req.method === "POST") {
-      let body = "";
-      req.on("data", (chunk) => {
-        body += chunk;
-        if (body.length > 20000) req.destroy();
-      });
-      req.on("end", async () => {
-        try {
-          const input = JSON.parse(body || "{}");
-          const actorId = String(input.actorId || "");
-          const staff = await staffRecord(auditMatch[1], actorId);
-          if (!staff.group) return send(res, 403, { error: "Active staff access required" });
-          const guild = getGuild(auditMatch[1]);
-          const entry = {
-            id: crypto.randomUUID(),
-            actorId,
-            action: String(input.action || "operation").slice(0, 120),
-            entityType: input.entityType ? String(input.entityType).slice(0, 120) : null,
-            entityId: input.entityId ? String(input.entityId).slice(0, 190) : null,
-            details: input.details && typeof input.details === "object" ? input.details : {},
-            createdAt: new Date().toISOString(),
-          };
-          guild.audit.unshift(entry);
-          if (guild.audit.length > 5000) guild.audit.length = 5000;
-          await saveStore();
+      try {
+        const input = await readJsonBody(req);
+        const actor = await requireTeamActor(auditMatch[1], input.actorId, "audit.view");
+        if (process.env.OVERLAND_STORAGE === "mysql") {
+          const entry = await appendAuditLog(auditMatch[1], { ...input, actorId: actor.discordId });
           return send(res, 201, { ok: true, id: entry.id });
-        } catch {
-          return send(res, 400, { error: "Invalid audit request" });
         }
-      });
-      return;
+        const guild = getGuild(auditMatch[1]);
+        const entry = { id: crypto.randomUUID(), actorId: actor.discordId, action: String(input.action || "operation").slice(0, 120), entityType: input.entityType ? String(input.entityType).slice(0, 120) : null, entityId: input.entityId ? String(input.entityId).slice(0, 190) : null, details: input.details && typeof input.details === "object" ? input.details : {}, createdAt: new Date().toISOString() };
+        guild.audit.unshift(entry);
+        if (guild.audit.length > 5000) guild.audit.length = 5000;
+        await saveStore();
+        return send(res, 201, { ok: true, id: entry.id });
+      } catch (error) { return send(res, error.status || 400, { error: error.message || "Invalid audit request" }); }
     }
     if (auditMatch && req.method === "GET") {
-      const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 100)));
-      const guild = getGuild(auditMatch[1]);
-      const rows = Array.isArray(guild.audit) ? guild.audit : [];
-      return send(res, 200, rows.slice(0, take).map((x) => ({
-        id: x.id || x.auditId || String(x.at || x.createdAt || ""),
-        actorId: x.actorId || x.discordId || null,
-        action: x.action || "operation",
-        entityType: x.entityType || x.resource || null,
-        createdAt: x.createdAt || x.at || new Date().toISOString(),
-      })));
+      try {
+        await requireTeamActor(auditMatch[1], url.searchParams.get("actorId"), "audit.view");
+        const take = Math.min(200, Math.max(1, Number(url.searchParams.get("take") || 100)));
+        if (process.env.OVERLAND_STORAGE === "mysql") return send(res, 200, await listAuditLogs(auditMatch[1], take));
+        const guild = getGuild(auditMatch[1]);
+        const rows = Array.isArray(guild.audit) ? guild.audit : [];
+        return send(res, 200, rows.slice(0, take).map((x) => ({ id: x.id || x.auditId || String(x.at || x.createdAt || ""), actorId: x.actorId || x.discordId || null, action: x.action || "operation", entityType: x.entityType || x.resource || null, createdAt: x.createdAt || x.at || new Date().toISOString() })));
+      } catch (error) { return send(res, error.status || 503, { error: error.status ? error.message : "Audit service unavailable" }); }
     }
     return send(res, 404, { error: "Not found" });
   });
