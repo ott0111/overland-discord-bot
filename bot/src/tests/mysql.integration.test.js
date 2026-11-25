@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { runMigrations } from "../db/migrate.js";
 import { getPool, closePool } from "../db/mysql.js";
-import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getNormalizedOverview } from "../db/repositories/operations.js";
+import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getNormalizedOverview, createManualXAnnouncement, getXDashboard, markXPostAnnounced } from "../db/repositories/operations.js";
 import { createRole, listRoles, grantMemberRole, evaluateMemberRoles } from "../db/repositories/roles.js";
 import { createModerationAction, listModerationActions } from "../db/repositories/moderation.js";
 import { recordGuildMemberJoin, recordGuildMemberLeave, recordGuildMemberMessage } from "../db/repositories/members.js";
@@ -30,6 +30,13 @@ test("normalized MySQL migrations and repositories work against an isolated test
     const [guildSettings] = await pool.execute("SELECT settings FROM guilds WHERE guild_id = ? LIMIT 1", [guildId]);
     const mirroredSettings = typeof guildSettings[0].settings === "string" ? JSON.parse(guildSettings[0].settings) : guildSettings[0].settings;
     assert.equal(mirroredSettings.dailyLimits.OVERPOINTS, 100);
+
+    await setConfiguration(guildId, "xIntegration", { enabled: true, username: "OverlandFinance", announcementChannelId: "123456789012345678" }, userId);
+    const manualPost = await createManualXAnnouncement(guildId, { text: "Integration test announcement", url: "https://x.com/OverlandFinance/status/123" }, userId);
+    assert.ok(manualPost.postId.length <= 40);
+    assert.equal(manualPost.published, false);
+    assert.ok((await getXDashboard(guildId)).posts.some((post) => post.id === manualPost.id));
+    await markXPostAnnounced(guildId, manualPost.id, "123456789012345678");
 
     const audit = await appendAuditLog(guildId, { actorId: userId, action: "integration.test", entityType: "Test", entityId: "run", details: { ok: true } });
     const auditRows = await listAuditLogs(guildId, 10);
