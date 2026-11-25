@@ -174,7 +174,19 @@ client.once(Events.ClientReady,async ready=>{
   await syncCommands(appId);
  }catch(e){console.error("[Commands] FATAL: "+e.message);console.error("[Commands] Exiting because slash commands could not be registered. Fix the settings and restart.");process.exit(1);}
  for(const g of ready.guilds.cache.values())await cacheInvites(g);
- const owner=process.env.OVERLAND_OWNER_DISCORD_ID;if(owner){for(const g of ready.guilds.cache.values()){if(process.env.OVERLAND_STORAGE==="mysql"){await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");await syncTeamCacheFromMySQL(g.id);}else{const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];data.team=data.team.filter(x=>x.discordId!==owner);data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});}}if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();}
+ const owner=process.env.OVERLAND_OWNER_DISCORD_ID;
+ if(owner){
+  for(const g of ready.guilds.cache.values()){
+   if(process.env.OVERLAND_STORAGE==="mysql")await bootstrapOwner(g.id,owner,process.env.OVERLAND_OWNER_USERNAME||"Owner");
+   else{
+    const data=getGuild(g.id),perms=["roles.manage","roles.verify_x","economy.manage","campaigns.manage","campaigns.review","rewards.manage","rewards.review","config.manage","community.manage","moderation.manage","team.manage","x.manage"];
+    data.team=data.team.filter(x=>x.discordId!==owner);
+    data.team.push({discordId:owner,username:process.env.OVERLAND_OWNER_USERNAME||"Owner",group:"Owner",permissions:perms,status:"ACTIVE",addedBy:"ENVIRONMENT"});
+   }
+  }
+  if(process.env.OVERLAND_STORAGE!=="mysql")await saveStore();
+ }
+ if(process.env.OVERLAND_STORAGE==="mysql")for(const g of ready.guilds.cache.values())await syncTeamCacheFromMySQL(g.id);
  console.log("[Overland] Loaded "+commands.size+" modular commands.");
 });
 const saveTimer=setInterval(()=>saveStore().catch(e=>console.error("[Storage]",e)),15000);
