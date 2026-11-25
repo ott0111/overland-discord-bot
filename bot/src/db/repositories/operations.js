@@ -16,10 +16,10 @@ async function ensureGuild(connection, guildId) {
 
 export async function listConfiguration(guildId) {
   const [rows] = await getPool().execute(
-    "SELECT id, config_key AS key, config_value AS value, updated_by AS updatedBy, updated_at AS updatedAt FROM bot_configuration WHERE guild_id = ? ORDER BY config_key ASC",
+    "SELECT id, config_key AS configKey, config_value AS configValue, updated_by AS updatedBy, updated_at AS updatedAt FROM bot_configuration WHERE guild_id = ? ORDER BY config_key ASC",
     [guildId],
   );
-  return rows.map((row) => ({ ...row, value: parseJson(row.value) }));
+  return rows.map((row) => ({ id: row.id, key: row.configKey, value: parseJson(row.configValue), updatedBy: row.updatedBy, updatedAt: row.updatedAt }));
 }
 
 export async function getConfiguration(guildId, key, fallback = {}) {
