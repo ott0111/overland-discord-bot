@@ -9,6 +9,7 @@ import {award} from "./services/economy.js";
 import {startCoreApi} from "./api.js";
 import {closePool} from "./db/mysql.js";
 import { registerAutomations } from "./services/automations.js";
+import { registerXIntegration } from "./services/x-integration.js";
 import { createTicketRecord, getTicketByChannel, updateTicket, appendTicketMessage } from "./db/repositories/tickets-rewards.js";
 import { getMemberVerification, acceptMemberRules, saveVerificationChallenge } from "./db/repositories/roles.js";
 import { bootstrapOwner } from "./db/repositories/team.js";
@@ -154,6 +155,7 @@ async function handleInteraction(i){
 }
 client.on(Events.InteractionCreate,handleInteraction);
 registerAutomations(client);
+registerXIntegration(client);
 client.on(Events.InviteCreate,async invite=>{try{if(invite.guild&&invite.inviter)await createInvite(invite.guild.id,invite.inviter,invite);}catch(e){console.error("[InviteCreate]",e.message);}});
 client.on(Events.GuildMemberAdd,async member=>{
  try{
