@@ -39,7 +39,11 @@ export default function XPage() {
     setMsg(""); setErr("");
     const res = await api("/api/x", "POST", { action: "announce", text, url });
     if (!res.ok) setErr(res.error);
-    else { setMsg("Manual announcement recorded. The bot publishes it to the announcement channel from this record."); setText(""); setUrl(""); data.reload(); }
+    else {
+      const published = Boolean((res.data as { published?: boolean } | undefined)?.published);
+      setMsg(published ? "Manual announcement published to the configured Discord channel." : "Announcement saved, but it was not published. Check that a valid text announcement channel is configured and the bot can send messages there.");
+      setText(""); setUrl(""); data.reload();
+    }
   }
   const posts = data.data?.posts ?? [];
   return (
