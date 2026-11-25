@@ -123,7 +123,6 @@ export function saveStore() {
           const settings = guildData.settings || {};
           const x = settings.x || {};
           const configEntries = [
-            ["guildSettings", settings],
             ["pointValues", settings.pointValues],
             ["dailyLimits", settings.dailyLimits],
             ["verification", settings.verification],
