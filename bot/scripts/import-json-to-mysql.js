@@ -26,6 +26,38 @@ async function importGuild(pool, guildId, guildData) {
     [guildId, JSON.stringify(guildData.settings || {}), JSON.stringify(guildData.stats || {})],
   );
 
+  const settings = guildData.settings && typeof guildData.settings === "object" ? guildData.settings : {};
+  const configEntries = [
+    ["pointValues", settings.pointValues],
+    ["dailyLimits", settings.dailyLimits],
+    ["verification", settings.verification],
+    ["security", settings.security],
+    ["infoContent", settings.info],
+    ["xIntegration", settings.x ? {
+      enabled: Boolean(settings.x.enabled),
+      username: settings.x.username || null,
+      announcementChannelId: settings.x.channelId || null,
+      ignoreReplies: settings.x.ignoreReplies !== false,
+      ignoreReposts: settings.x.ignoreReposts !== false,
+      pollMinutes: Number(settings.x.pollMinutes || 15),
+    } : null],
+    ["welcomeConfig", {
+      welcomeChannelId: settings.welcomeChannelId || null,
+      leaveChannelId: settings.leaveChannelId || null,
+      eventLogChannelId: settings.eventLogChannelId || null,
+      welcomeMessage: settings.welcomeMessage || "Welcome {user} to {server}!",
+      welcomeEnabled: Boolean(settings.welcomeEnabled),
+      welcomeDm: Boolean(settings.welcomeDm),
+    }],
+  ];
+  for (const [key, value] of configEntries) {
+    if (value === null || value === undefined) continue;
+    await pool.execute(
+      "INSERT IGNORE INTO bot_configuration (id, guild_id, config_key, config_value, updated_by) VALUES (?, ?, ?, ?, NULL)",
+      [stableId("config", guildId + ":" + key), guildId, key, JSON.stringify(value)],
+    );
+  }
+
   const memberIds = new Map();
   const members = guildData.members && typeof guildData.members === "object" ? Object.entries(guildData.members) : [];
   for (const [mapId, member] of members) {
