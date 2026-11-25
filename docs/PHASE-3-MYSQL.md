@@ -175,3 +175,49 @@ Referral migration is not yet complete. The legacy invite/reward history must be
 - Historical moderation records are mapped by the JSON importer.
 
 This migrates the moderation case-history data path only. Automod settings, blacklist records, anti-raid configuration, and all moderation configuration ownership still require a dedicated configuration migration. Test action logging, concurrent case numbering, missing/departed members, and history parity against a disposable MySQL database before production.
+
+## Phase 3.11: Configuration, permissions, audit, and overview cutover
+
+- Added normalized configuration read/write APIs in Core API using `bot_configuration`, with per-request staff authorization.
+- Dashboard Configuration no longer queries Prisma. X Integration settings are also read and written through Core API.
+- Configuration writes are mirrored into `guilds.settings` and the bot's compatibility guild state so existing Discord commands and event handlers see changes without a separate database authority.
+- Bot `saveStore()` now synchronizes guild settings into normalized configuration rows, including point values, daily limits, verification, security, X, welcome, voice, role ID, and role-menu configuration.
+- Dashboard permission-group listing and updates now use Core API and normalized `permission_groups` / `permissions` tables. Only Owners can change permission definitions, and permission keys are allowlisted.
+- Team/permission changes refresh the bot's in-memory command permission cache. Startup also loads the normalized team roster before commands are used.
+- MySQL staff authorization now fails closed: if a staff record is missing from normalized MySQL, the Core API does not fall back to stale JSON permissions.
+- Audit writes and reads use normalized `audit_logs`; dashboard audit reads revalidate `audit.view`.
+- Overview analytics now aggregate normalized member, ticket, reward-claim, campaign-submission, point-transaction, and check-in data through Core API.
+- Migration 0008 adds member departure tracking. Guild member joins, leaves, and message activity update normalized member rows, and Overview excludes departed members from its active-member total.
+
+## Phase 3.12: X integration cutover
+
+- Dashboard X configuration and post history use Core API/MySQL; the dashboard no longer queries Prisma for X records.
+- The bot uses `X_BEARER_TOKEN` from its private environment to poll the configured account through X API v2.
+- The polling service honors enabled state, configured poll interval, reply filtering, and repost filtering.
+- The initial poll stores a cursor without replaying old posts. New posts are inserted idempotently into `x_posts` and announced to the configured Discord channel. Failed deliveries remain pending for retry.
+- Manual dashboard announcements are stored in `x_posts` and sent to the configured channel when the bot has access. The dashboard reports whether delivery actually succeeded.
+- X credentials are rejected by configuration APIs and must remain private environment variables.
+
+## Phase 3.13: Historical data and identifier compatibility
+
+- JSON import now also maps configuration, X post history, audit events, community records, historical moderation actions, referrals/invites, campaigns/submissions, roles, rewards/claims, tickets, and supported economy data.
+- Normalized repositories now resolve the actual existing user/member primary keys after an upsert. This is required because imported IDs are deterministic and differ from IDs generated for new live records; repositories must not assume an ID prefix.
+- Integration coverage includes an imported-style member ID to prevent regressions in member activity, role assignment, economy awards, and moderation history.
+- Migration 0008 adds `discord_members.left_at` and an index for active-member analytics.
+
+## Phase 3.14: Disposable MySQL CI
+
+- The Phase 3 database workflow now provisions a fresh MySQL 8.4 service container.
+- CI applies all numbered migrations and runs repository integration checks against the isolated `overland_test` database.
+- Integration tests cover migrations, configuration writes and settings mirroring, audit records, imported-style member identity resolution, member join/message/leave lifecycle, role assignment, idempotent economy awards, moderation case numbering/history, and normalized overview queries.
+- The test runner refuses to execute the integration suite unless `RUN_MYSQL_INTEGRATION_TESTS=1` and the database name clearly identifies a test/CI database.
+- This disposable CI database is not CoalByte production. It does not authorize a production connection, migration, storage switch, merge, or deployment.
+
+## Remaining Phase 3 release gates
+
+- Verify the newest full Core CI and disposable MySQL workflow runs pass on the current branch head.
+- Expand MySQL integration coverage to every repository and workflow, especially ticket/reward transitions, referral milestones, campaign review/rewards, X polling/delivery, and migration reconciliation.
+- Complete remaining live community-record/blacklist workflows and any remaining dashboard or bot configuration consumers.
+- Review all data import counts and reconcile source JSON against normalized MySQL in a disposable database.
+- Rotate the database password that was exposed in chat, privately configure the replacement in CoalByte, and confirm secure Core API connectivity without exposing MySQL publicly.
+- Production backup, dry-run review, reconciliation, explicit approval, and controlled cutover remain separate required steps.
