@@ -103,7 +103,7 @@ export async function createManualXAnnouncement(guildId, input, actorId) {
 export async function getNormalizedOverview(guildId) {
   const pool = getPool();
   const [[memberRows], [ticketRows], [claimRows], [submissionRows], [todayPoints], [todayCheckins], [todayJoins], [categoryRows], [dailyPoints], [dailyCheckins], [dailyJoins]] = await Promise.all([
-    pool.execute("SELECT COUNT(*) AS total FROM discord_members WHERE guild_id = ?", [guildId]),
+    pool.execute("SELECT COUNT(*) AS total FROM discord_members WHERE guild_id = ? AND left_at IS NULL", [guildId]),
     pool.execute("SELECT COUNT(*) AS total FROM tickets WHERE guild_id = ? AND status IN ('OPEN','CLAIMED')", [guildId]),
     pool.execute("SELECT COUNT(*) AS total FROM reward_claims WHERE guild_id = ? AND status = 'PENDING'", [guildId]),
     pool.execute("SELECT COUNT(*) AS total FROM campaign_submissions WHERE guild_id = ? AND status = 'PENDING'", [guildId]),
@@ -111,11 +111,11 @@ export async function getNormalizedOverview(guildId) {
     pool.execute("SELECT COUNT(*) AS total FROM daily_checkins WHERE guild_id = ? AND checkin_date = CURRENT_DATE()", [guildId]),
     pool.execute("SELECT COUNT(*) AS total FROM discord_members WHERE guild_id = ? AND joined_at >= CURRENT_DATE()", [guildId]),
     pool.execute("SELECT category, SUM(amount) AS total FROM point_transactions WHERE guild_id = ? AND currency = 'OVERPOINTS' AND amount > 0 GROUP BY category ORDER BY total DESC", [guildId]),
-    pool.execute("SELECT DATE(created_at) AS day, SUM(amount) AS total FROM point_transactions WHERE guild_id = ? AND currency = 'OVERPOINTS' AND amount > 0 AND created_at >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE(created_at)", [guildId]),
-    pool.execute("SELECT checkin_date AS day, COUNT(*) AS total FROM daily_checkins WHERE guild_id = ? AND checkin_date >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY checkin_date", [guildId]),
-    pool.execute("SELECT DATE(joined_at) AS day, COUNT(*) AS total FROM discord_members WHERE guild_id = ? AND joined_at >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE(joined_at)", [guildId]),
+    pool.execute("SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day, SUM(amount) AS total FROM point_transactions WHERE guild_id = ? AND currency = 'OVERPOINTS' AND amount > 0 AND created_at >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')", [guildId]),
+    pool.execute("SELECT DATE_FORMAT(checkin_date, '%Y-%m-%d') AS day, COUNT(*) AS total FROM daily_checkins WHERE guild_id = ? AND checkin_date >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE_FORMAT(checkin_date, '%Y-%m-%d')", [guildId]),
+    pool.execute("SELECT DATE_FORMAT(joined_at, '%Y-%m-%d') AS day, COUNT(*) AS total FROM discord_members WHERE guild_id = ? AND left_at IS NULL AND joined_at >= CURRENT_DATE() - INTERVAL 13 DAY GROUP BY DATE_FORMAT(joined_at, '%Y-%m-%d')", [guildId]),
   ]);
-  const points = new Map(dailyPoints.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
+  const points = new Map(dailyPoints.map((row) => [String(row.day).slice(0, 10), Number(row.total)]));
   const checkins = new Map(dailyCheckins.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
   const joins = new Map(dailyJoins.map((row) => [new Date(row.day).toISOString().slice(0, 10), Number(row.total)]));
   const daily = [];
