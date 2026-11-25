@@ -16,7 +16,7 @@ import { listModerationActions } from "./db/repositories/moderation.js";
 import { checkMemberAchievements } from "./db/repositories/achievements.js";
 import { evaluateMemberRoles } from "./db/repositories/roles.js";
 import { syncDiscordRole } from "./services/roles.js";
-import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getXDashboard, createManualXAnnouncement, getNormalizedOverview } from "./db/repositories/operations.js";
+import { listConfiguration, setConfiguration, appendAuditLog, listAuditLogs, getXDashboard, createManualXAnnouncement, getNormalizedOverview, markXPostAnnounced } from "./db/repositories/operations.js";
 
 function authorized(req) {
   const expected = process.env.OVERLAND_API_SECRET || "";
@@ -505,7 +505,19 @@ export function startCoreApi(client = null) {
             if (["bearerToken", "apiKey", "apiSecret", "accessToken", "clientSecret"].some((key) => key in value)) return send(res, 400, { error: "X credentials must be configured as private environment variables, not stored in MySQL." });
             return send(res, 200, await setConfiguration(guildId, "xIntegration", value, actor.discordId));
           }
-          if (input.action === "announce") return send(res, 201, await createManualXAnnouncement(guildId, input, actor.discordId));
+          if (input.action === "announce") {
+            const post = await createManualXAnnouncement(guildId, input, actor.discordId);
+            if (client && post.announcedChannelId) {
+              const channel = await client.channels.fetch(post.announcedChannelId).catch(() => null);
+              if (channel?.isTextBased()) {
+                await channel.send({ content: "**X UPDATE  /  @" + String((await getXDashboard(guildId)).config.username || "OverlandFinance").replace(/^@/, "") + "**\\n" + post.text + "\\n" + post.url, allowedMentions: { parse: [] } });
+                await markXPostAnnounced(guildId, post.id, post.announcedChannelId);
+                post.published = true;
+                post.announcedAt = new Date().toISOString();
+              }
+            }
+            return send(res, 201, post);
+          }
           return send(res, 400, { error: "Unknown X integration action" });
         }
         return send(res, 405, { error: "Method not allowed" });
