@@ -19,9 +19,10 @@ async function resolveMember(connection, guildId, user) {
   const discordId = String(typeof user === "string" ? user : user.id);
   const username = String(typeof user === "string" ? discordId : user.username || user.globalName || discordId).slice(0,100);
   await connection.execute("INSERT IGNORE INTO guilds (guild_id,settings,stats) VALUES (?,JSON_OBJECT(),JSON_OBJECT())",[guildId]);
-  const userId = "discord:" + discordId;
-  await connection.execute("INSERT INTO users (id,discord_id,username) VALUES (?,?,?) ON DUPLICATE KEY UPDATE username=VALUES(username)",[userId,discordId,username]);
-  await connection.execute("INSERT IGNORE INTO discord_members (id,guild_id,user_id) VALUES (?,?,?)",["member:"+guildId+":"+discordId,guildId,userId]);
+  const candidateUserId = "discord:" + discordId;
+  await connection.execute("INSERT INTO users (id,discord_id,username) VALUES (?,?,?) ON DUPLICATE KEY UPDATE username=VALUES(username)",[candidateUserId,discordId,username]);
+  const [users] = await connection.execute("SELECT id FROM users WHERE discord_id = ? LIMIT 1",[discordId]);
+  await connection.execute("INSERT IGNORE INTO discord_members (id,guild_id,user_id) VALUES (?,?,?)",["member:"+guildId+":"+discordId,guildId,users[0].id]);
   const [rows] = await connection.execute("SELECT dm.id,u.username FROM discord_members dm JOIN users u ON u.id=dm.user_id WHERE dm.guild_id=? AND u.discord_id=? LIMIT 1",[guildId,discordId]);
   if (!rows.length) throw new Error("Unable to resolve guild member.");
   return {id:rows[0].id,username:rows[0].username,discordId};
